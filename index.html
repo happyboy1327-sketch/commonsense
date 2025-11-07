@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>랜덤 상식 퀴즈</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font (Tailwind default) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <style>
+        /* 커스텀 스타일 및 폰트 설정 */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1e1e2d; /* 짙은 배경 */
+            color: #e0e0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        /* 블러 효과를 위한 배경 컨테이너 */
+        #app-container {
+            background: rgba(30, 30, 50, 0.7); /* 불투명한 배경 */
+            backdrop-filter: blur(10px); /* 블러 효과 */
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 600px;
+            padding: 30px;
+            min-height: 500px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 보라-연두 그라데이션 버튼 스타일 */
+        .gradient-button {
+            background-image: linear-gradient(135deg, #a78bfa 0%, #4ade80 100%); /* 보라색 -> 연두색 */
+            transition: all 0.3s ease;
+            color: #1e1e2d;
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(167, 139, 250, 0.4);
+        }
+        .gradient-button:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(74, 222, 128, 0.5);
+        }
+
+        /* 퀴즈 카드 디자인 */
+        .quiz-card {
+            background: rgba(45, 45, 70, 0.9);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            border-radius: 15px;
+            padding: 25px;
+            width: 100%;
+            margin-bottom: 20px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        /* 퀴즈 옵션 버튼 스타일 */
+        .quiz-option-button {
+            background-color: #374151; /* bg-gray-700 */
+            color: #e0e0f0; /* text-white */
+            border: 1px solid transparent;
+            text-align: left;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .quiz-option-button:hover:not([disabled]) {
+            background-color: #8b5cf6; /* hover:bg-purple-600 */
+            border-color: #a78bfa;
+        }
+
+        /* 타이머 숫자에 부드러운 애니메이션 적용을 위한 기본 스타일 */
+        #quiz-timer {
+            transition: color 0.5s ease-in-out, filter 0.5s ease-in-out;
+        }
+
+        /* 신규 애니메이션: 내려오기 + 밝게 */
+        @keyframes timer-tick {
+            0% {
+                opacity: 0.5;
+                transform: translateY(-10px) scale(0.9); /* 위에서 시작 */
+                filter: brightness(1.5); /* 밝게 */
+            }
+            50% {
+                opacity: 1;
+                transform: translateY(0) scale(1.1); /* 중앙으로 내려오면서 약간 커지고 */
+                filter: brightness(2.5); /* 가장 밝게 */
+            }
+            100% {
+                transform: translateY(0) scale(1.0);
+                filter: brightness(1.0); /* 원래 밝기로 복귀 */
+            }
+        }
+        
+        .timer-animate {
+            animation: timer-tick 0.5s ease-out forwards;
+        }
+    </style>
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Firestore 로깅 활성화 (디버깅 용)
+        setLogLevel('Debug');
+
+        // 전역 변수 설정
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        
+        // 캔버스 환경 변수 사용
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        /**
+         * @description Firebase를 초기화하고 사용자 인증을 처리합니다.
+         */
+        async function initializeFirebase() {
+            if (!firebaseConfig) {
+                console.error("Firebase config is missing.");
+                // Firebase 미사용 시에도 앱은 작동해야 하므로 경고만 표시
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                window.db = getFirestore(app);
+                window.auth = getAuth(app);
+
+                // 사용자 인증 처리
+                onAuthStateChanged(window.auth, async (user) => {
+                    if (user) {
+                        window.userId = user.uid;
+                        console.log("Firebase Auth Ready. User ID:", window.userId);
+                    } else {
+                        // 초기 토큰이 있으면 커스텀 인증, 없으면 익명 인증 시도
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(window.auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(window.auth);
+                        }
+                    }
+                    // 인증 상태가 확정된 후 메인 메뉴 렌더링 시작
+                    window.checkAndInitializeQuiz();
+                });
+            } catch (error) {
+                console.error("Firebase initialization or authentication failed:", error);
+                window.showNotification('시스템 오류: Firebase 초기화에 실패했습니다.', 'error');
+                // 오류 발생 시에도 퀴즈 기능은 로컬 스토리지를 사용하여 작동하도록 시도
+                window.checkAndInitializeQuiz(); 
+            }
+        }
+
+        // 전역 초기화 함수 실행
+        window.onload = initializeFirebase;
+    </script>
+</head>
+<body>
+
+<div id="app-container">
+    <h1 class="text-3xl font-bold mb-8 text-white">랜덤 상식 퀴즈</h1>
+
+    <div id="content" class="w-full flex flex-col items-center">
+        <!-- 콘텐츠가 여기에 로드됩니다 (메인 메뉴, 퀴즈, 복습 등) -->
+    </div>
+
+    <!-- 로딩 및 알림 메시지 영역 -->
+    <div id="notification-area" class="fixed top-0 left-0 w-full h-full bg-black bg-opacity-70 backdrop-blur-sm hidden flex justify-center items-center z-50">
+        <div id="notification-box" class="quiz-card p-6 text-center shadow-2xl">
+            <p id="notification-message" class="text-xl font-semibold"></p>
+            <div id="loading-spinner" class="mt-4 animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-purple-400 mx-auto hidden"></div>
+            <button id="notification-ok-button" class="gradient-button mt-6 py-2 px-6 rounded-full text-sm hidden" onclick="window.hideNotification()">확인</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // =========================================================================
+    // 1. 전역 설정 및 유틸리티 함수
+    // =========================================================================
+
+    const QUIZ_TOPICS = [
+        '디지털 리터러시', '환경', '과학', '정치', '경제', '사회', 
+        '국어 맞춤법', '국어 속담', '지리', '역사'
+    ];
+    const LOCAL_STORAGE_QUIZ_KEY = 'accumulated_quiz_data';
+    const LOCAL_STORAGE_HISTORY_KEY = 'quiz_history';
+    const LOCAL_STORAGE_DATE_KEY = 'last_generated_date';
+    const contentDiv = document.getElementById('content');
+    
+    // 타이머 관련 전역 변수
+    let timerInterval = null;
+    const TIME_LIMIT = 15;
+    
+    let accumulatedQuizzes = [];
+    let quizHistory = [];
+    let currentQuizSet = [];
+    let currentQuestionIndex = 0;
+    let quizMode = 'quiz'; // 'quiz' or 'review'
+
+    /** @description UUID를 생성합니다. (랜덤 ID) */
+    function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
+    /** @description 배열을 섞습니다. (Fisher-Yates 알고리즘) */
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
+
+    /**
+     * @description 알림 메시지 또는 로딩 스피너를 표시합니다.
+     * @param {string} message - 표시할 메시지
+     * @param {'loading'|'info'|'error'} type - 메시지 유형
+     * @param {boolean} [showButton=false] - 확인 버튼 표시 여부
+     */
+    window.showNotification = (message, type, showButton = false) => {
+        const area = document.getElementById('notification-area');
+        const msg = document.getElementById('notification-message');
+        const spinner = document.getElementById('loading-spinner');
+        const button = document.getElementById('notification-ok-button');
+
+        msg.textContent = message;
+        spinner.classList.add('hidden');
+        button.classList.add('hidden');
+
+        if (type === 'loading') {
+            spinner.classList.remove('hidden');
+        } else if (showButton || type === 'error' || type === 'info') {
+            button.classList.remove('hidden');
+        }
+        
+        // 배경색 및 스타일 조정 (선택적)
+        const box = document.getElementById('notification-box');
+        if (type === 'error') {
+            box.style.borderColor = '#ef4444'; // Red
+        } else {
+            box.style.borderColor = 'rgba(167, 139, 250, 0.3)';
+        }
+
+        area.classList.remove('hidden');
+    };
+
+    /** @description 알림 메시지 영역을 숨깁니다. */
+    window.hideNotification = () => {
+        document.getElementById('notification-area').classList.add('hidden');
+    };
+
+    /** @description 로컬 스토리지에서 퀴즈 데이터를 불러옵니다. */
+    function loadQuizData() {
+        try {
+            const data = localStorage.getItem(LOCAL_STORAGE_QUIZ_KEY);
+            return data ? JSON.parse(data) : [];
+        } catch (e) {
+            console.error("로컬 스토리지에서 퀴즈 데이터 로드 실패:", e);
+            return [];
+        }
+    }
+
+    /** @description 로컬 스토리지에 퀴즈 데이터를 저장합니다. */
+    function saveQuizData(data) {
+        try {
+            localStorage.setItem(LOCAL_STORAGE_QUIZ_KEY, JSON.stringify(data));
+        } catch (e) {
+            console.error("로컬 스토리지에 퀴즈 데이터 저장 실패:", e);
+        }
+    }
+
+    /** @description 로컬 스토리지에서 퀴즈 히스토리를 불러옵니다. */
+    function loadQuizHistory() {
+        try {
+            const data = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
+            return data ? JSON.parse(data) : [];
+        } catch (e) {
+            console.error("로컬 스토리지에서 퀴즈 히스토리 로드 실패:", e);
+            return [];
+        }
+    }
+
+    /** @description 로컬 스토리지에 퀴즈 히스토리를 저장합니다. */
+    function saveQuizHistory(data) {
+        try {
+            localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(data));
+        } catch (e) {
+            console.error("로컬 스토리지에 퀴즈 히스토리 저장 실패:", e);
+        }
+    }
+
+    // =========================================================================
+    // 2. AI API 연동 (문제 생성 로직)
+    // =========================================================================
+
+    /**
+     * @description AI API를 호출하여 새로운 퀴즈를 생성합니다. (4지선다형)
+     * @param {number} count - 생성할 문제 수 (8 또는 4)
+     * @returns {Promise<Array<Object>>} 생성된 퀴즈 배열
+     */
+    async function generateNewQuestions(count) {
+        window.showNotification(`새로운 퀴즈 ${count}개 생성 중...`, 'loading');
+        
+        // count 개수만큼 생성하기 위해 2문제씩 생성 가정
+        const topicsNeeded = Math.ceil(count / 2); 
+        const questionsPerTopic = count / topicsNeeded; // 8개면 4주제 2문제, 4개면 2주제 2문제
+
+        const shuffledTopics = [...QUIZ_TOPICS].sort(() => 0.5 - Math.random());
+        const selectedTopics = shuffledTopics.slice(0, topicsNeeded);
+
+        // SYSTEM PROMPT: 문제 수를 동적으로 설정
+        const systemPrompt = `Act as a strict quiz master. Generate exactly ${count} unique, challenging general knowledge questions in Korean, divided equally among ${topicsNeeded} topics: [${selectedTopics.join(', ')}]. You must generate exactly ${questionsPerTopic} questions per topic. For each question, provide the correct answer, three plausible incorrect distractors, and a detailed explanation in Korean covering why the answer is correct and briefly explaining why the incorrect options are wrong.`;
+        
+        const userQuery = `새로운 4지선다형 퀴즈 ${count}개를 ${selectedTopics.join(', ')} 주제로 생성해 주세요. 각 문제에는 고유 ID, 주제, 질문, 정답, 그리고 정답을 포함한 4개의 보기(options) 배열, 그리고 정답과 오답에 대한 명확한 해설이 포함되어야 합니다.`;
+        
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${""}`;
+        
+        // JSON SCHEMA: 해설 포함
+        const responseSchema = {
+            type: "ARRAY",
+            items: {
+                type: "OBJECT",
+                properties: {
+                    "id": { "type": "STRING", "description": "고유 식별자 (UUID)" },
+                    "topic": { "type": "STRING", "description": "10가지 주제 중 하나" },
+                    "question": { "type": "STRING", "description": "질문 내용" },
+                    "answer": { "type": "STRING", "description": "정확한 정답 (보기 중 하나)" },
+                    "options": { 
+                        "type": "ARRAY", 
+                        "items": { "type": "STRING" },
+                        "description": "정답을 포함한 4개의 보기"
+                    },
+                    "explanation": { "type": "STRING", "description": "정답과 오답을 포함하는 상세 해설" }
+                },
+                "required": ["id", "topic", "question", "answer", "options", "explanation"],
+                "propertyOrdering": ["id", "topic", "question", "answer", "options", "explanation"]
+            }
+        };
+
+        const payload = {
+            contents: [{ parts: [{ text: userQuery }] }],
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: responseSchema
+            }
+        };
+
+        const maxRetries = 3;
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) throw new Error(`API response error: ${response.statusText}`);
+
+                const result = await response.json();
+                const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (!jsonText) throw new Error("API did not return structured content.");
+
+                let newQuizzes = JSON.parse(jsonText);
+                
+                // 생성된 퀴즈 유효성 검사 및 ID 추가
+                newQuizzes = newQuizzes.filter(q => 
+                    q.question && q.answer && Array.isArray(q.options) && q.options.length === 4
+                    && q.explanation
+                ).map(q => ({
+                    ...q,
+                    id: q.id || generateUUID(),
+                    topic: q.topic || '일반 상식',
+                    question: q.question,
+                    answer: q.answer,
+                    options: q.options,
+                    explanation: q.explanation
+                }));
+                
+                // 퀴즈 수가 요청한 count와 일치하지 않는 경우 오류 처리 (재시도)
+                if (newQuizzes.length !== count) {
+                    throw new Error(`Generated quiz count is ${newQuizzes.length}, expected ${count}.`);
+                }
+                
+                window.hideNotification();
+                return newQuizzes;
+            } catch (error) {
+                console.error(`Attempt ${i + 1} failed:`, error);
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000)); // Exponential backoff
+            }
+        }
+        
+        // 최종 실패
+        window.showNotification('퀴즈 생성에 실패했습니다. 기본 퀴즈를 로드합니다.', 'error', true);
+        return [];
+    }
+
+    /** @description 로컬 데이터와 현재 날짜를 확인하여 새로운 퀴즈를 생성할지 결정합니다. */
+    window.checkAndInitializeQuiz = async () => {
+        accumulatedQuizzes = loadQuizData();
+        quizHistory = loadQuizHistory();
+        
+        const lastDate = localStorage.getItem(LOCAL_STORAGE_DATE_KEY);
+        const today = new Date().toDateString();
+        
+        if (accumulatedQuizzes.length === 0 || lastDate !== today) {
+            // 첫 실행이거나 오늘 날짜에 생성된 퀴즈가 없는 경우 (8개 생성 예정)
+            if (accumulatedQuizzes.length === 0) {
+                 window.showNotification('로딩 완료. "퀴즈 시작" 버튼을 눌러 오늘의 퀴즈 8개를 생성하고 도전하세요.', 'info', true);
+            } else {
+                 window.showNotification('새로운 하루입니다. "퀴즈 시작" 버튼을 눌러 오늘의 퀴즈 8개를 생성하고 도전하세요.', 'info', true);
+            }
+        } else {
+            // 오늘 이미 생성된 퀴즈가 있음 (4개 추가 생성 예정)
+            window.showNotification('로딩 완료. "퀴즈 시작" 버튼을 누르면 새로운 퀴즈 4개가 추가되어 8문제 세트로 도전합니다. 현재 총 ' + accumulatedQuizzes.length + '개의 퀴즈가 누적되어 있습니다.', 'info', true);
+        }
+
+        renderMainMenu();
+    };
+
+    // =========================================================================
+    // 3. 타이머 로직 (신규)
+    // =========================================================================
+
+    /** @description 15초 타이머를 시작합니다. */
+    function startTimer() {
+        if (timerInterval) clearInterval(timerInterval);
+
+        let timeLeft = TIME_LIMIT;
+        const timerElement = document.getElementById('quiz-timer');
+        if (timerElement) {
+            timerElement.textContent = timeLeft;
+            timerElement.style.color = '#4ade80'; // Green
+
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                if (timerElement) {
+                    timerElement.textContent = timeLeft;
+                    
+                    // 색상 변경 및 애니메이션 (Green -> Yellow -> Red)
+                    if (timeLeft <= 5) {
+                        timerElement.style.color = '#ef4444'; // Red-400
+                        timerElement.classList.add('animate-pulse');
+                    } else if (timeLeft <= 10) {
+                        timerElement.style.color = '#facc15'; // Yellow-400
+                    }
+                    
+                    // 신규 애니메이션 적용: 내려오기 + 밝게
+                    timerElement.classList.remove('timer-animate'); // 이전 애니메이션 제거
+                    // requestAnimationFrame을 사용하여 DOM 강제 리플로우 후 클래스를 다시 추가하여 애니메이션 재시작
+                    // 두 번의 rAF 호출은 클래스 제거/추가 사이의 시각적 간격을 보장하여 애니메이션이 매 틱마다 재시작되도록 합니다.
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            timerElement.classList.add('timer-animate');
+                        });
+                    });
+
+                }
+
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    timeUp();
+                }
+            }, 1000);
+        }
+    }
+    
+    /** @description 시간이 초과되었을 때 처리합니다. */
+    function timeUp() {
+        // 이미 답변이 처리되었으면 무시
+        if (contentDiv.querySelector('#answer-reveal:not(.hidden)')) return; 
+        
+        // 타이머 애니메이션 중지
+        const timerElement = document.getElementById('quiz-timer');
+        if(timerElement) timerElement.classList.remove('animate-pulse', 'timer-animate');
+
+        window.showNotification('⏳ 시간이 초과되었습니다!', 'info', true);
+        
+        // 오답 처리 로직을 직접 실행합니다.
+        simulateTimeOverAnswer();
+    }
+    
+    /** @description 시간이 초과되었을 때 오답 처리를 시뮬레이션합니다. */
+    function simulateTimeOverAnswer() {
+        const q = currentQuizSet[currentQuestionIndex];
+        const resultMessage = document.getElementById('result-message');
+        const answerReveal = document.getElementById('answer-reveal');
+        const answerDisplay = document.getElementById('correct-answer-display');
+        const explanationDisplay = document.getElementById('explanation-display'); 
+
+        // 모든 버튼 비활성화 및 스타일 변경
+        contentDiv.querySelectorAll('.quiz-option-button').forEach(btn => {
+            btn.disabled = true;
+            btn.classList.remove('hover:bg-purple-600');
+            
+            // 정답 하이라이트
+            const btnOption = btn.getAttribute('data-option');
+            const normalizedCorrectAnswer = q.answer.toLowerCase().replace(/\s/g, '');
+            const normalizedBtnOption = btnOption.toLowerCase().replace(/\s/g, '');
+            
+            if (normalizedBtnOption === normalizedCorrectAnswer) {
+                 btn.classList.add('bg-green-800', 'border-green-500'); 
+            }
+        });
+
+        answerDisplay.textContent = q.answer;
+        explanationDisplay.textContent = q.explanation;
+        answerReveal.classList.remove('hidden');
+
+        resultMessage.innerHTML = '<span class="text-red-400">❌ 시간 초과! (오답 처리)</span>';
+        
+        // 알림 숨기기
+        window.hideNotification();
+
+        // 히스토리 기록 (오답으로 기록)
+        quizHistory.push({
+            quizId: q.id,
+            topic: q.topic,
+            isCorrect: false, // 시간 초과는 무조건 오답
+            answeredAt: new Date().toISOString()
+        });
+        saveQuizHistory(quizHistory);
+    }
+    
+    // =========================================================================
+    // 4. UI 렌더링 및 모드별 로직
+    // =========================================================================
+
+    /** @description 메인 메뉴 화면을 렌더링합니다. */
+    function renderMainMenu() {
+        // 타이머 정리
+        if (timerInterval) clearInterval(timerInterval);
+
+        quizMode = 'menu';
+        const incorrectCount = quizHistory.filter(h => !h.isCorrect).length;
+
+        contentDiv.innerHTML = `
+            <div class="w-full text-center p-6">
+                <p class="text-xl mb-12 text-gray-300">
+                    현재 누적된 총 퀴즈 수: <span class="text-purple-400 font-bold">${accumulatedQuizzes.length}</span>개
+                </p>
+                <div class="flex flex-col space-y-6">
+                    <button id="start-quiz-btn" class="gradient-button w-full py-4 px-8 rounded-xl text-lg shadow-lg" onclick="startQuiz()">
+                        🚀 퀴즈 세트 도전 (8문제 랜덤 풀이)
+                    </button>
+                    <button id="review-mode-btn" class="gradient-button w-full py-4 px-8 rounded-xl text-lg shadow-lg" onclick="startReviewMode()">
+                        📚 복습 모드 (${incorrectCount}개 틀린 문제)
+                    </button>
+                    <p class="text-sm mt-8 text-gray-400">
+                        * '퀴즈 세트 도전' 시 오늘의 첫 접속이면 8개, 이후는 4개의 새로운 문제가 추가됩니다.
+                    </p>
+                </div>
+            </div>
+        `;
+    }
+
+    // --- 퀴즈 모드 로직 ---
+
+    /** @description 퀴즈 모드를 시작하고, 필요 시 문제를 생성합니다. */
+    async function startQuiz() {
+        quizMode = 'quiz';
+        currentQuestionIndex = 0;
+
+        const lastDate = localStorage.getItem(LOCAL_STORAGE_DATE_KEY);
+        const today = new Date().toDateString();
+
+        let generateCount = 0;
+        let isFirstAccessToday = lastDate !== today;
+
+        if (isFirstAccessToday) {
+            // 1. 신규 날짜 최초 접속: 8개 생성
+            generateCount = 8;
+        } else if (accumulatedQuizzes.length === 0) {
+            // 퀴즈 데이터가 없으면 무조건 8개 생성 (안전 장치)
+            generateCount = 8;
+        } else {
+            // 2. 같은 날 두 번째 접속 이후: 4개 추가 생성
+            generateCount = 4;
+        }
+
+        if (generateCount > 0) {
+            const newQuizzes = await generateNewQuestions(generateCount);
+            
+            if (newQuizzes.length === generateCount) {
+                accumulatedQuizzes = [...accumulatedQuizzes, ...newQuizzes];
+                saveQuizData(accumulatedQuizzes);
+                
+                if (isFirstAccessToday) {
+                    // 첫 접속 시에만 날짜 업데이트
+                    localStorage.setItem(LOCAL_STORAGE_DATE_KEY, today);
+                    window.showNotification(`🎉 오늘의 새로운 퀴즈 ${generateCount}개가 추가되었습니다! 총 ${accumulatedQuizzes.length}개의 퀴즈가 누적되었습니다.`, 'info', true);
+                } else {
+                    window.showNotification(`🎉 추가 퀴즈 ${generateCount}개가 생성되었습니다! 총 ${accumulatedQuizzes.length}개의 퀴즈가 누적되었습니다.`, 'info', true);
+                }
+            } else if (accumulatedQuizzes.length === 0) {
+                // API 호출 실패 AND 기존 퀴즈 없음
+                window.showNotification('퀴즈 데이터 생성에 실패했습니다. 다시 시도해 주세요.', 'error', true);
+                return;
+            } else {
+                // API 호출 실패했지만 기존 퀴즈 있음
+                window.showNotification('새 퀴즈 생성에 실패했습니다. 기존 퀴즈로 퀴즈를 시작합니다.', 'info', true);
+            }
+        } else if (accumulatedQuizzes.length === 0) {
+             window.showNotification('풀 수 있는 퀴즈가 현재 없습니다. 메인 메뉴로 돌아갑니다.', 'error', true);
+             renderMainMenu();
+             return;
+        }
+
+        // === 핵심 수정: 퀴즈 세트 크기를 8로 고정하고, 전체 문제에서 랜덤 추출 ===
+        currentQuizSet = [...accumulatedQuizzes]
+            .sort(() => 0.5 - Math.random()) // 전체 문제를 랜덤하게 섞음
+            .filter(q => q.options && q.options.length === 4) // 유효성 검사
+            .slice(0, 8); // 최대 8문제로 세트 크기 고정
+        
+        if (currentQuizSet.length === 0) {
+            window.showNotification('풀 수 있는 퀴즈가 현재 없습니다. 메인 메뉴로 돌아갑니다.', 'error', true);
+            renderMainMenu();
+            return;
+        }
+        
+        // 데이터가 8개 미만인 경우에도 세션 시작 (예: 처음 시작하여 8개만 생성되었을 때)
+        
+        renderQuestion();
+    }
+
+    /** @description 현재 문제를 렌더링합니다. */
+    function renderQuestion() {
+        // 이전 타이머 정리
+        if (timerInterval) clearInterval(timerInterval);
+
+        if (currentQuestionIndex >= currentQuizSet.length) {
+            endQuiz();
+            return;
+        }
+
+        const q = currentQuizSet[currentQuestionIndex];
+        
+        // 옵션을 복사하고 섞습니다. (4지선다형)
+        let shuffledOptions = [...(q.options || [q.answer])];
+        if (shuffledOptions.length === 4) {
+            shuffledOptions = shuffleArray(shuffledOptions);
+        } else {
+            shuffledOptions = [q.answer];
+        }
+
+
+        const optionsHtml = shuffledOptions.map((option, index) => `
+            <button class="quiz-option-button w-full py-3 px-4 rounded-xl text-lg text-left mb-3 shadow-md" 
+                    data-option="${option}" onclick="selectAnswer('${option}')">
+                ${['①', '②', '③', '④'][index]} ${option}
+            </button>
+        `).join('');
+
+
+        contentDiv.innerHTML = `
+            <div class="flex justify-between items-center w-full mb-4">
+                <!-- 타이머 표시 영역 (신규) -->
+                <p class="text-base text-purple-300">
+                    ${currentQuestionIndex + 1}/${currentQuizSet.length} | 주제: ${q.topic}
+                </p>
+                <div id="quiz-timer" class="text-4xl font-extrabold text-green-400 leading-none">
+                    ${TIME_LIMIT}
+                </div>
+            </div>
+
+            <div class="quiz-card mb-6 w-full shadow-2xl">
+                <p class="text-2xl font-semibold text-white">
+                    Q. ${q.question}
+                </p>
+            </div>
+            
+            <div id="options-container" class="w-full">
+                ${optionsHtml}
+            </div>
+
+            <div id="result-message" class="mt-4 text-center font-bold text-xl min-h-[30px]"></div>
+            
+            <div id="answer-reveal" class="quiz-card mt-4 hidden text-center">
+                <p class="text-sm text-gray-300">정답</p>
+                <p class="text-2xl font-extrabold text-green-400 mb-3" id="correct-answer-display"></p>
+                
+                <!-- 해설 영역 -->
+                <div class="text-left bg-gray-700 p-4 rounded-lg mt-4">
+                    <p class="text-sm font-semibold text-purple-300 mb-2">해설</p>
+                    <p class="text-base text-gray-200" id="explanation-display"></p>
+                </div>
+                
+                <button class="gradient-button mt-4 py-2 px-6 rounded-full text-sm" onclick="nextQuestion()">
+                    다음 문제
+                </button>
+            </div>
+        `;
+        
+        // 퀴즈 렌더링 후 타이머 시작
+        startTimer();
+    }
+
+    /** @description 퀴즈 정답을 확인하고 결과를 기록합니다. */
+    window.selectAnswer = (selectedOption) => {
+        // 타이머 정리
+        if (timerInterval) clearInterval(timerInterval);
+        
+        // 이미 답변을 처리했는지 확인
+        if (contentDiv.querySelector('#answer-reveal:not(.hidden)')) return; 
+
+        // 타이머 애니메이션 중지
+        const timerElement = document.getElementById('quiz-timer');
+        if(timerElement) timerElement.classList.remove('animate-pulse', 'timer-animate');
+        
+        const q = currentQuizSet[currentQuestionIndex];
+        const normalizedSelected = selectedOption.toLowerCase().replace(/\s/g, '');
+        const normalizedCorrectAnswer = q.answer.toLowerCase().replace(/\s/g, '');
+
+        const isCorrect = normalizedSelected === normalizedCorrectAnswer;
+        
+        const resultMessage = document.getElementById('result-message');
+        const answerReveal = document.getElementById('answer-reveal');
+        const answerDisplay = document.getElementById('correct-answer-display');
+        const explanationDisplay = document.getElementById('explanation-display'); 
+
+        // 모든 버튼 비활성화 및 스타일 변경
+        contentDiv.querySelectorAll('.quiz-option-button').forEach(btn => {
+            btn.disabled = true;
+            const btnOption = btn.getAttribute('data-option');
+            const normalizedBtnOption = btnOption.toLowerCase().replace(/\s/g, '');
+            
+            if (normalizedBtnOption === normalizedSelected) {
+                 // 사용자가 선택한 옵션
+                 btn.classList.add(isCorrect ? 'bg-green-600' : 'bg-red-600');
+                 btn.classList.remove('bg-gray-700', 'hover:bg-purple-600');
+            } else if (normalizedBtnOption === normalizedCorrectAnswer) {
+                 // 정답 하이라이트 (사용자 선택과 무관하게)
+                 btn.classList.add('bg-green-800', 'border-green-500'); 
+                 btn.classList.remove('bg-gray-700', 'hover:bg-purple-600');
+            } else {
+                 btn.classList.remove('hover:bg-purple-600');
+            }
+        });
+
+
+        answerDisplay.textContent = q.answer;
+        explanationDisplay.textContent = q.explanation; // Set the explanation text
+        answerReveal.classList.remove('hidden');
+
+        if (isCorrect) {
+            resultMessage.innerHTML = '<span class="text-green-400">✅ 정답입니다!</span>';
+        } else {
+            resultMessage.innerHTML = '<span class="text-red-400">❌ 오답입니다.</span>';
+        }
+
+        // 히스토리 기록
+        quizHistory.push({
+            quizId: q.id,
+            topic: q.topic,
+            isCorrect: isCorrect,
+            answeredAt: new Date().toISOString()
+        });
+        saveQuizHistory(quizHistory);
+    };
+
+    /** @description 다음 문제로 넘어갑니다. */
+    window.nextQuestion = () => {
+        // 타이머 정리
+        if (timerInterval) clearInterval(timerInterval);
+        currentQuestionIndex++;
+        renderQuestion();
+    };
+
+    /** @description 퀴즈를 종료하고 결과를 표시합니다. */
+    function endQuiz() {
+        // 타이머 정리
+        if (timerInterval) clearInterval(timerInterval);
+
+        const total = currentQuizSet.length;
+        // 이번 세트의 히스토리만 필터링
+        const recentHistory = quizHistory.slice(-total); 
+        const correctCount = recentHistory.filter(h => h.isCorrect).length;
+        const score = Math.round((correctCount / total) * 100);
+
+        contentDiv.innerHTML = `
+            <div class="quiz-card w-full text-center p-8 shadow-2xl">
+                <p class="text-4xl font-extrabold mb-4 text-purple-400">퀴즈 종료!</p>
+                <p class="text-2xl mb-8">
+                    총 ${total}문제 중 <span class="text-green-400 font-bold">${correctCount}개</span> 정답!
+                </p>
+                <p class="text-6xl font-black mb-8">${score}점</p>
+                
+                <button class="gradient-button w-full py-3 rounded-xl text-lg shadow-lg" onclick="renderMainMenu()">
+                    메인 메뉴로 돌아가기
+                </button>
+            </div>
+        `;
+    }
+
+
+    // --- 복습 모드 로직 ---
+
+    /** @description 복습 모드를 시작합니다. */
+    function startReviewMode() {
+        // 타이머 정리
+        if (timerInterval) clearInterval(timerInterval);
+
+        quizMode = 'review';
+        currentQuestionIndex = 0;
+        
+        // 오답 기록만 필터링
+        const incorrectHistory = quizHistory.filter(h => !h.isCorrect);
+
+        // 오답 기록에서 문제 ID를 추출하여 실제 퀴즈 데이터와 연결
+        currentQuizSet = incorrectHistory.map(h => {
+            const quiz = accumulatedQuizzes.find(q => q.id === h.quizId);
+            return quiz ? { ...quiz, historyId: h.quizId } : null;
+        }).filter(q => q && q.options && q.options.length === 4); // 4지선다형 문제만 복습
+
+        const incorrectCount = currentQuizSet.length;
+
+        if (incorrectCount === 0) {
+            window.showNotification('🎉 틀린 문제가 없습니다! 완벽해요.', 'info', true);
+            renderMainMenu();
+            return;
+        }
+
+        window.showNotification(`📚 복습 모드를 시작합니다. 총 ${incorrectCount}개의 틀린 문제가 있습니다.`, 'info');
+        renderReviewQuestion();
+    }
+
+    /** @description 복습 문제를 렌더링합니다. (정답을 즉시 표시) */
+    function renderReviewQuestion() {
+        // 타이머 정리
+        if (timerInterval) clearInterval(timerInterval);
+
+        if (currentQuestionIndex >= currentQuizSet.length) {
+            endReview();
+            return;
+        }
+
+        const q = currentQuizSet[currentQuestionIndex];
+        
+        // 옵션을 복사하고 섞습니다. (복습 모드에서도 순서는 섞어서 표시)
+        let shuffledOptions = [...(q.options || [q.answer])];
+        if (shuffledOptions.length === 4) {
+             shuffledOptions = shuffleArray(shuffledOptions);
+        } else {
+            shuffledOptions = [q.answer];
+        }
+
+        const optionsHtml = shuffledOptions.map((option, index) => {
+            const isCorrectOption = option.toLowerCase().replace(/\s/g, '') === q.answer.toLowerCase().replace(/\s/g, '');
+            // 복습 모드에서는 정답을 바로 보여줍니다.
+            const style = isCorrectOption ? 'bg-green-800 text-white font-bold border-green-500' : 'bg-gray-700 text-gray-300 border-transparent';
+            
+            return `
+                <button class="w-full py-3 px-4 rounded-xl text-lg text-left mb-3 shadow-md border ${style}" disabled>
+                    ${['①', '②', '③', '④'][index]} ${option} ${isCorrectOption ? ' ✅ 정답' : ''}
+                </button>
+            `;
+        }).join('');
+
+        contentDiv.innerHTML = `
+            <div class="quiz-card w-full mb-6 shadow-2xl">
+                <p class="text-sm text-purple-300 mb-2">
+                    복습 문제 ${currentQuestionIndex + 1}/${currentQuizSet.length} | 주제: ${q.topic}
+                </p>
+                <p class="text-2xl font-semibold mb-6 text-white">
+                    Q. ${q.question}
+                </p>
+            </div>
+            
+            <div id="options-container" class="w-full mb-4">
+                ${optionsHtml}
+            </div>
+            
+            <!-- 복습 모드 해설 영역 -->
+            <div class="text-left quiz-card p-4 rounded-lg mt-4 w-full">
+                <p class="text-sm font-semibold text-purple-300 mb-2">정답: <span class="text-green-400 font-bold">${q.answer}</span></p>
+                <p class="text-sm font-semibold text-purple-300 mb-2 mt-4 border-t border-gray-600 pt-4">해설</p>
+                <p class="text-base text-gray-200">${q.explanation || '해설 정보가 없습니다.'}</p>
+            </div>
+
+            <button class="gradient-button mt-6 w-full py-3 rounded-xl text-lg shadow-lg" onclick="nextReviewQuestion()">
+                다음 복습 문제 확인
+            </button>
+            
+            <button class="text-sm text-gray-400 mt-4 hover:text-red-400 transition-colors" onclick="removeReviewItem('${q.id}')">
+                ✅ 이 문제 이제 알아요 (오답 목록에서 제거)
+            </button>
+        `;
+    }
+
+    /** @description 다음 복습 문제로 넘어갑니다. */
+    window.nextReviewQuestion = () => {
+        currentQuestionIndex++;
+        renderReviewQuestion();
+    };
+    
+    /** @description 복습 목록에서 해당 문제를 제거하고 히스토리를 업데이트합니다. */
+    window.removeReviewItem = (quizId) => {
+        quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
+        saveQuizHistory(quizHistory);
+        
+        // 복습 셋 업데이트 후 다음 문제로
+        startReviewMode();
+    };
+
+    /** @description 복습 모드를 종료합니다. */
+    function endReview() {
+        // 타이머 정리
+        if (timerInterval) clearInterval(timerInterval);
+
+        contentDiv.innerHTML = `
+            <div class="quiz-card w-full text-center p-8 shadow-2xl">
+                <p class="text-4xl font-extrabold mb-4 text-green-400">복습 완료!</p>
+                <p class="text-xl mb-8">
+                    틀렸던 모든 문제를 확인하셨습니다.
+                </p>
+                
+                <button class="gradient-button w-full py-3 rounded-xl text-lg shadow-lg" onclick="renderMainMenu()">
+                    메인 메뉴로 돌아가기
+                </button>
+            </div>
+        `;
+    }
+    
+    // =========================================================================
+    // 5. 초기 로드
+    // =========================================================================
+    
+    // Firebase 초기화는 <script type="module"> 블록에서 처리
+    // window.onload 시점에 window.checkAndInitializeQuiz()가 호출되어 메인 메뉴를 렌더링함
+</script>
+
+</body>
+</html>
