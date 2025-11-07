@@ -119,16 +119,26 @@
         const contentDiv = document.getElementById('content');
 
         // 퀴즈 관련 상태
-        let quizzes = [];             // 현재 난이도의 모든 퀴즈
-        let currentQuizSet = [];      // 실제로 풀 퀴즈 목록 (랜덤 추출된 10개)
+        let allQuizzes = [];          // mockQuizzes를 Map 형태로 저장 (검색 효율화)
+        let currentQuizSet = [];      // 현재 퀴즈 세션에 사용할 퀴즈 (10개)
         let currentQuizIndex = 0;     // 현재 풀고 있는 퀴즈의 인덱스
         let quizHistory = [];         // 사용자가 푼 모든 퀴즈 기록 (Firestore 동기화)
         let timerInterval = null;     // 퀴즈 타이머
         let timeRemaining = 15;       // 문제당 시간 (초)
         let selectedDifficulty = 'Easy'; // 현재 선택된 난이도
+        
+        /** * @typedef {Object} QuizState
+         * @property {string} lastAccessDate - 마지막 접속 날짜 (YYYY-MM-DD)
+         * @property {{Easy: string[], Normal: string[], Hard: string[]}} pools - 난이도별 현재 사용자에게 공개된 퀴즈 ID 목록
+         */
+        /** @type {QuizState} */
+        let quizState = { 
+            lastAccessDate: '', 
+            pools: { Easy: [], Normal: [], Hard: [] } 
+        };
 
         // =========================================================================
-        // 2. 데이터 구조 및 모의 데이터 (해설 필드 추가)
+        // 2. 데이터 구조 및 모의 데이터
         // =========================================================================
 
         /** @typedef {Object} Quiz
@@ -137,42 +147,168 @@
          * @property {string[]} options
          * @property {number} answerIndex
          * @property {'Easy'|'Normal'|'Hard'} difficulty
-         * @property {string} explanation // 해설 필드 추가
+         * @property {string} explanation // 해설 필드
          */
 
         /** @type {Quiz[]} */
-        const mockQuizzes = [
+        const mockQuizzesArray = [
             // Easy
             { id: 'e1', question: '지구상에서 가장 큰 포유류는 무엇일까요?', options: ['코끼리', '기린', '흰수염고래', '하마'], answerIndex: 2, difficulty: 'Easy', explanation: '흰수염고래(Blue Whale)는 지구상에 존재하는 가장 큰 동물이며, 길이 30m, 무게 180톤을 초과할 수 있습니다.' },
             { id: 'e2', question: '대한민국의 수도는 어디일까요?', options: ['부산', '서울', '제주', '평양'], answerIndex: 1, difficulty: 'Easy', explanation: '대한민국의 수도는 서울특별시입니다.' },
             { id: 'e3', question: '물의 화학 기호는 무엇일까요?', options: ['O2', 'CO2', 'H2O', 'NaCl'], answerIndex: 2, difficulty: 'Easy', explanation: '물은 두 개의 수소 원자와 한 개의 산소 원자로 이루어져 H₂O로 표기합니다.' },
             { id: 'e4', question: '태양계의 중심에 있는 항성은 무엇일까요?', options: ['지구', '달', '화성', '태양'], answerIndex: 3, difficulty: 'Easy', explanation: '태양계의 중심에는 태양이 있으며, 태양은 스스로 빛을 내는 항성입니다.' },
             { id: 'e5', question: '사계절 중 가장 추운 계절은 무엇일까요?', options: ['봄', '여름', '가을', '겨울'], answerIndex: 3, difficulty: 'Easy', explanation: '사계절 중 겨울이 기온이 가장 낮아 가장 추운 계절입니다.' },
+            { id: 'e6', question: '대한민국 국화는 무엇일까요?', options: ['개나리', '장미', '무궁화', '진달래'], answerIndex: 2, difficulty: 'Easy', explanation: '대한민국의 국화는 무궁화입니다.' },
+            { id: 'e7', question: '100m를 뜻하는 단위는?', options: ['km', 'm', 'cm', 'hm'], answerIndex: 3, difficulty: 'Easy', explanation: '1 헥토미터(hm)는 100미터입니다.' },
+            { id: 'e8', question: '가장 흔한 혈액형은?', options: ['A형', 'B형', 'O형', 'AB형'], answerIndex: 2, difficulty: 'Easy', explanation: '전 세계적으로 O형이 가장 흔한 혈액형입니다.' },
+            { id: 'e9', question: '빛의 속도는 초당 약 몇 킬로미터일까요?', options: ['30만 km', '3천만 km', '300만 km', '3억 km'], answerIndex: 0, difficulty: 'Easy', explanation: '빛의 속도는 초당 약 300,000 km입니다.' },
+            { id: 'e10', question: '지구의 위성은 무엇일까요?', options: ['태양', '화성', '금성', '달'], answerIndex: 3, difficulty: 'Easy', explanation: '지구의 유일한 자연 위성은 달입니다.' },
+            { id: 'e11', question: '가장 많이 사용되는 소셜 미디어는?', options: ['트위터', '페이스북', '인스타그램', '틱톡'], answerIndex: 1, difficulty: 'Easy', explanation: '페이스북(Meta)이 가장 많은 활성 사용자를 보유하고 있습니다.' },
+            { id: 'e12', question: '한국에서 가장 높은 산은?', options: ['설악산', '지리산', '한라산', '백두산'], answerIndex: 2, difficulty: 'Easy', explanation: '한국에서 가장 높은 산은 제주도의 한라산입니다.' },
             // Normal
             { id: 'n1', question: '르네상스 시대의 대표적인 화가로 "모나리자"를 그린 사람은 누구일까요?', options: ['빈센트 반 고흐', '레오나르도 다빈치', '파블로 피카소', '클로드 모네'], answerIndex: 1, difficulty: 'Normal', explanation: '레오나르도 다빈치(Leonardo da Vinci)는 모나리자 외에도 최후의 만찬 등의 걸작을 남겼습니다.' },
             { id: 'n2', question: '중국의 만리장성은 무엇을 막기 위해 건설되었을까요?', options: ['자연재해', '이민자 유입', '북방 민족의 침입', '무역선 출입'], answerIndex: 2, difficulty: 'Normal', explanation: '만리장성은 고대 중국의 여러 왕조들이 북쪽의 흉노와 같은 북방 유목 민족의 침입을 막기 위해 건설한 방어 시설입니다.' },
             { id: 'n3', question: '노벨상을 수여하는 나라는 어디일까요?', options: ['미국', '영국', '스웨덴', '프랑스'], answerIndex: 2, difficulty: 'Normal', explanation: '노벨상은 스웨덴의 과학자 알프레드 노벨의 유언에 따라 스웨덴 왕립 과학원 등 스웨덴 기관과 노르웨이 노벨위원회가 수여합니다.' },
             { id: 'n4', question: '인체의 뼈 중 가장 긴 뼈는 무엇일까요?', options: ['쇄골', '경골', '대퇴골', '척추'], answerIndex: 2, difficulty: 'Normal', explanation: '대퇴골(Femur)은 허벅지에 있는 뼈로, 인체에서 가장 크고 긴 뼈입니다.' },
             { id: 'n5', question: '셰익스피어의 4대 비극에 해당하지 않는 작품은 무엇일까요?', options: ['햄릿', '리어왕', '로미오와 줄리엣', '맥베스'], answerIndex: 2, difficulty: 'Normal', explanation: '셰익스피어의 4대 비극은 햄릿, 오셀로, 리어왕, 맥베스입니다. 로미오와 줄리엣은 5대 비극에 속하나 4대 비극에는 포함되지 않습니다.' },
+            { id: 'n6', question: '파리 기후변화협정이 채택된 연도는?', options: ['2012년', '2015년', '2018년', '2021년'], answerIndex: 1, difficulty: 'Normal', explanation: '파리 협정은 2015년 12월 프랑스 파리에서 열린 제21차 유엔 기후변화협약 당사국총회에서 채택되었습니다.' },
+            { id: 'n7', question: '미국의 초대 대통령은 누구일까요?', options: ['토머스 제퍼슨', '존 애덤스', '조지 워싱턴', '에이브러햄 링컨'], answerIndex: 2, difficulty: 'Normal', explanation: '조지 워싱턴은 미국의 초대 대통령입니다.' },
+            { id: 'n8', question: '지구 자기장의 역전 주기는 평균적으로 얼마일까요?', options: ['수백 년', '수만 년', '수십만 년', '수백만 년'], answerIndex: 2, difficulty: 'Normal', explanation: '지구 자기장의 역전 주기는 일정하지 않지만, 평균적으로 수십만 년에 한 번 발생합니다.' },
+            { id: 'n9', question: '주식 시장에서 "블루칩"이란 무엇을 의미할까요?', options: ['갓 상장된 주식', '가격 변동성이 큰 주식', '대형 우량주', 'IT 관련 기술주'], answerIndex: 2, difficulty: 'Normal', explanation: '블루칩(Blue Chip)은 안정적이고 재무 상태가 건전한 대형 우량 기업의 주식을 의미합니다.' },
+            { id: 'n10', question: '독일의 통일을 상징하는 문은 무엇일까요?', options: ['개선문', '브란덴부르크 문', '콜로세움', '베를린 장벽'], answerIndex: 1, difficulty: 'Normal', explanation: '브란덴부르크 문은 베를린에 위치하며 독일 분단과 통일의 상징입니다.' },
+            { id: 'n11', question: '러시아의 수도는?', options: ['상트페테르부르크', '키이우', '모스크바', '민스크'], answerIndex: 2, difficulty: 'Normal', explanation: '러시아의 수도는 모스크바입니다.' },
+            { id: 'n12', question: '세포의 에너지 생산 공장이라고 불리는 것은?', options: ['핵', '리보솜', '미토콘드리아', '엽록체'], answerIndex: 2, difficulty: 'Normal', explanation: '미토콘드리아는 세포 호흡을 통해 ATP를 생성하는 세포 소기관입니다.' },
             // Hard
             { id: 'h1', question: '양자역학에서 불확정성 원리를 제안한 과학자는 누구일까요?', options: ['아인슈타인', '보어', '하이젠베르크', '슈뢰딩거'], answerIndex: 2, difficulty: 'Hard', explanation: '베르너 하이젠베르크(Werner Heisenberg)는 입자의 위치와 운동량을 동시에 정확하게 측정할 수 없다는 불확정성 원리를 제안했습니다.' },
             { id: 'h2', question: '고대 로마의 율리우스 카이사르가 남긴 유명한 말 "왔노라, 보았노라, 이겼노라"의 라틴어 원문은 무엇일까요?', options: ['Carpe Diem', 'Veni, Vidi, Vici', 'Alea iacta est', 'Et tu, Brute?'], answerIndex: 1, difficulty: 'Hard', explanation: '"Veni, Vidi, Vici"는 카이사르가 기원전 47년 젤라 전투에서 승리한 후 로마에 보낸 보고서에 쓴 문구로 알려져 있습니다.' },
             { id: 'h3', question: '경제학에서 "보이지 않는 손" 개념을 제시한 학자는 누구일까요?', options: ['존 메이너드 케인스', '칼 마르크스', '애덤 스미스', '밀턴 프리드먼'], answerIndex: 2, difficulty: 'Hard', explanation: '애덤 스미스(Adam Smith)는 국부론(The Wealth of Nations)에서 시장 경제가 개인의 이기심에 의해 조정된다는 "보이지 않는 손" 개념을 제시했습니다.' },
             { id: 'h4', question: '1905년 아인슈타인이 발표한 4편의 논문은 기적의 해 논문(Annus Mirabilis Papers)이라 불립니다. 이 논문들에 포함되지 않는 주제는 무엇일까요?', options: ['광전 효과', '브라운 운동', '특수 상대성 이론', '양자장 이론'], answerIndex: 3, difficulty: 'Hard', explanation: '아인슈타인의 1905년 논문은 광전 효과, 브라운 운동, 특수 상대성 이론, 그리고 질량-에너지 등가성(E=mc²)을 다루었으며, 양자장 이론은 이후에 발전한 개념입니다.' },
             { id: 'h5', question: '프랑스 혁명의 구호인 "자유, 평등, 박애" 중 "박애"에 해당하는 프랑스어 단어는 무엇일까요?', options: ['Liberté', 'Égalité', 'Fraternité', 'Justice'], answerIndex: 2, difficulty: 'Hard', explanation: '프랑스 혁명의 구호는 Liberté(자유), Égalité(평등), Fraternité(박애)입니다.' },
+            { id: 'h6', question: '전자기학의 기초가 되는 4가지 방정식을 완성한 과학자는 누구일까요?', options: ['마이클 패러데이', '제임스 클러크 맥스웰', '니콜라 테슬라', '앙드레 마리 앙페르'], answerIndex: 1, difficulty: 'Hard', explanation: '제임스 클러크 맥스웰(James Clerk Maxwell)은 전자기 현상을 통합적으로 설명하는 맥스웰 방정식을 완성했습니다.' },
+            { id: 'h7', question: '헤밍웨이의 소설 "노인과 바다"의 배경이 되는 나라는 어디일까요?', options: ['스페인', '미국', '쿠바', '멕시코'], answerIndex: 2, difficulty: 'Hard', explanation: '"노인과 바다"는 쿠바를 배경으로 하며, 노인의 이름은 산티아고입니다.' },
+            { id: 'h8', question: '국제 표준화 기구(ISO)의 약자는 어느 나라의 언어에서 유래했을까요?', options: ['영어', '프랑스어', '그리스어', '라틴어'], answerIndex: 2, difficulty: 'Hard', explanation: 'ISO는 International Organization for Standardization의 약자이지만, 이름은 그리스어의 "isos"(동일하다)에서 유래했습니다.' },
+            { id: 'h9', question: '천문학에서 별의 밝기를 나타내는 등급 체계에서, 숫자가 낮을수록 더 밝습니다. 이 등급 체계를 고안한 고대 그리스의 천문학자는 누구일까요?', options: ['프톨레마이오스', '히파르코스', '유클리드', '아리스토텔레스'], answerIndex: 1, difficulty: 'Hard', explanation: '히파르코스(Hipparchus)는 별의 밝기를 6등급으로 나누는 최초의 성표를 작성했습니다.' },
+            { id: 'h10', question: '철학자 니체가 "신은 죽었다"라고 선언한 주요 저서는 무엇일까요?', options: ['도덕의 계보', '차라투스트라는 이렇게 말했다', '선악의 저편', '인간적인, 너무나 인간적인'], answerIndex: 1, difficulty: 'Hard', explanation: '"차라투스트라는 이렇게 말했다"에서 니체는 "신은 죽었다"는 선언을 통해 서구 사회의 근본적인 가치 붕괴를 알렸습니다.' },
         ];
-
+        
+        // 퀴즈 배열을 ID 기반 맵으로 변환하여 검색 효율성을 높임
+        mockQuizzesArray.forEach(q => allQuizzes[q.id] = q);
 
         // =========================================================================
-        // 3. Firebase Firestore 및 인증 (Auth)
+        // 3. 유틸리티 함수
         // =========================================================================
+
+        /** @description 오늘의 날짜를 'YYYY-MM-DD' 형식으로 반환합니다. */
+        function getTodayDate() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // =========================================================================
+        // 4. Firebase Firestore 및 인증 (Auth) 및 데이터 관리
+        // =========================================================================
+        
+        /** @description 퀴즈 상태 문서 경로를 가져옵니다. */
+        function getQuizStateDocRef() {
+            const docPath = `/artifacts/${appId}/users/${userId}/quizState/state`;
+            return doc(db, docPath);
+        }
 
         /** @description LocalStorage에 퀴즈 히스토리를 저장합니다. (비인가/익명 사용자용) */
         function saveQuizHistory(history) {
             localStorage.setItem(`quizHistory_${userId}`, JSON.stringify(history));
-            console.log("Quiz History saved to LocalStorage:", history.length);
+        }
+
+        /** @description LocalStorage에 퀴즈 상태를 저장합니다. (비인가/익명 사용자용) */
+        function saveQuizStateLocal() {
+            localStorage.setItem(`quizState_${userId}`, JSON.stringify(quizState));
+        }
+
+        /** @description 퀴즈 결과를 Firestore 또는 LocalStorage에 저장합니다. */
+        async function saveQuizResult(quizId, isCorrect, difficulty) {
+            const newEntry = {
+                quizId,
+                isCorrect,
+                difficulty,
+                timestamp: Date.now()
+            };
+            
+            const isFirestore = db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-');
+
+            if (isFirestore) {
+                // Firestore에 저장
+                const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
+                try {
+                    const docId = `${difficulty}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                    await setDoc(doc(db, historyCollectionPath, docId), newEntry);
+                } catch (error) {
+                    console.error("Error saving history to Firestore:", error);
+                }
+            } else {
+                // LocalStorage에 저장
+                quizHistory.unshift(newEntry); // 최신 항목을 앞에 추가
+                quizHistory = quizHistory.slice(0, 50); // 최대 50개 항목 유지
+                saveQuizHistory(quizHistory);
+            }
         }
         
+        /** @description 퀴즈 상태를 Firestore 또는 LocalStorage에 저장합니다. */
+        async function saveQuizState() {
+            const isFirestore = db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-');
+            
+            if (isFirestore) {
+                // Firestore에 저장
+                try {
+                    await setDoc(getQuizStateDocRef(), quizState);
+                    console.log("Quiz State saved to Firestore.");
+                } catch (error) {
+                    console.error("Error saving quiz state to Firestore:", error);
+                    saveQuizStateLocal(); // Firestore 실패 시 LocalStorage에 백업
+                }
+            } else {
+                // LocalStorage에 저장
+                saveQuizStateLocal();
+                console.log("Quiz State saved to LocalStorage.");
+            }
+        }
+        
+        /** @description 퀴즈 상태를 Firestore 또는 LocalStorage에서 로드합니다. */
+        async function loadQuizState() {
+            const isFirestore = db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-');
+
+            if (isFirestore) {
+                try {
+                    const docSnap = await getDoc(getQuizStateDocRef());
+                    if (docSnap.exists()) {
+                        quizState = docSnap.data();
+                        console.log("Quiz State loaded from Firestore.");
+                    } else {
+                        console.log("No Quiz State found in Firestore. Initializing.");
+                        // Firestore에 초기 상태 저장 시도
+                        await saveQuizState(); 
+                    }
+                } catch (error) {
+                    console.error("Error loading quiz state from Firestore:", error);
+                    // Firestore 실패 시 LocalStorage에서 로드 시도
+                    const localState = localStorage.getItem(`quizState_${userId}`);
+                    if (localState) {
+                        quizState = JSON.parse(localState);
+                        console.log("Quiz State loaded from LocalStorage (Firestore fallback).");
+                    }
+                }
+            } else {
+                // LocalStorage에서 로드
+                const localState = localStorage.getItem(`quizState_${userId}`);
+                if (localState) {
+                    quizState = JSON.parse(localState);
+                    console.log("Quiz State loaded from LocalStorage.");
+                }
+            }
+        }
+
         /** @description Firebase 인증 및 Firestore를 초기화하고 사용자 ID를 가져옵니다. */
         async function initializeFirebase() {
             if (firebaseConfig) {
@@ -180,10 +316,11 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
             } else {
-                console.error("Firebase config is missing.");
-                // 비인가 모드에서도 실행되도록 더미 객체 할당
+                // Firebase config가 없는 경우 익명 모드로 대체
+                console.error("Firebase config is missing. Running in anonymous mode.");
                 auth = { currentUser: { uid: 'anonymous-' + Math.random().toString(36).substring(2, 9) } };
                 userId = auth.currentUser.uid;
+                await loadQuizState(); // 초기 상태 로드
                 startListeningToHistory();
                 renderMainMenu();
                 return;
@@ -197,46 +334,44 @@
                 }
             } catch (error) {
                 console.error("Firebase Auth error:", error);
-                // 인증 실패 시 익명 사용자 ID를 대체 사용
                 auth.currentUser = { uid: 'error-' + Math.random().toString(36).substring(2, 9) };
             }
             
             // 인증 상태 변화 리스너
-            onAuthStateChanged(auth, (user) => {
+            onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     userId = user.uid;
                 } else {
-                    // onAuthStateChanged가 발생했으나 user가 null인 경우 익명 ID 부여
                     userId = auth.currentUser?.uid || 'anon-' + Math.random().toString(36).substring(2, 9);
                 }
                 console.log("User ID set:", userId);
-                startListeningToHistory(); // 인증이 완료되면 히스토리 리스너 시작
+                await loadQuizState(); // 퀴즈 상태 로드
+                startListeningToHistory(); // 히스토리 리스너 시작
                 renderMainMenu(); // 메인 메뉴 렌더링
             });
         }
         
         /** @description Firestore에서 퀴즈 히스토리 변경 사항을 실시간으로 수신하거나 LocalStorage에서 로드합니다. */
         function startListeningToHistory() {
-            if (!db || userId === 'loading' || userId.startsWith('error-') || userId.startsWith('anon-') || userId.startsWith('anonymous-')) {
-                 // 파이어베이스가 없거나, 익명 또는 에러 유저인 경우 LocalStorage에서 로드
+            const isFirestore = db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-');
+            
+            if (!isFirestore) {
+                 // 파이어베이스가 없거나, 익명/에러 유저인 경우 LocalStorage에서 로드
                 console.warn("Firestore history listening skipped. Loading from LocalStorage.");
                 quizHistory = JSON.parse(localStorage.getItem(`quizHistory_${userId}`)) || [];
-                // 로드 후 즉시 정렬 (가장 최근 항목이 앞으로 오도록)
                 quizHistory.sort((a, b) => b.timestamp - a.timestamp);
                 return; 
             }
 
             const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
-            const q = query(collection(db, historyCollectionPath));
+            const q = query(collection(db, historyCollectionPath), limit(50), orderBy('timestamp', 'desc'));
 
             onSnapshot(q, (snapshot) => {
                 const history = [];
                 snapshot.forEach((doc) => {
                     history.push(doc.data());
                 });
-                // 가장 최근의 50개 항목만 유지 (성능을 위해)
-                history.sort((a, b) => b.timestamp - a.timestamp);
-                quizHistory = history.slice(0, 50); 
+                quizHistory = history; 
                 // 메인 메뉴에 변경 사항 반영
                 if (document.getElementById('content-title')?.innerText === '메인 메뉴') {
                     renderMainMenu();
@@ -247,36 +382,84 @@
             });
         }
         
-        /** @description 퀴즈 결과를 Firestore 또는 LocalStorage에 저장합니다. */
-        async function saveQuizResult(quizId, isCorrect, difficulty) {
-            const newEntry = {
-                quizId,
-                isCorrect,
-                difficulty,
-                timestamp: Date.now()
-            };
-            
-            if (db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-')) {
-                // Firestore에 저장
-                const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
-                try {
-                    // ID는 'difficulty_timestamp' 형태로 저장하여 고유성 확보
-                    const docId = `${difficulty}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-                    await setDoc(doc(db, historyCollectionPath, docId), newEntry);
-                } catch (error) {
-                    console.error("Error saving to Firestore:", error);
-                }
+        // =========================================================================
+        // 5. 퀴즈 풀 관리 로직 (신규 구현)
+        // =========================================================================
+        
+        /** @description 퀴즈 풀에 신규 문제를 추가하고 상태를 업데이트합니다. */
+        async function updateQuizPool(difficulty) {
+            const today = getTodayDate();
+            let newQuizCount = 0;
+            const currentPool = quizState.pools[difficulty];
+
+            // 1. 추가해야 할 문제 수 결정
+            if (quizState.lastAccessDate !== today) {
+                // 오늘 최초 접속: 8개 추가
+                newQuizCount = 8;
+                quizState.lastAccessDate = today; // 날짜 업데이트
+                console.log(`[${difficulty}] Today is new day. Adding ${newQuizCount} new quizzes.`);
             } else {
-                // LocalStorage에 저장 (익명 또는 에러 사용자)
-                quizHistory.unshift(newEntry); // 최신 항목을 앞에 추가
-                quizHistory = quizHistory.slice(0, 50); // 최대 50개 항목 유지
-                saveQuizHistory(quizHistory); // LocalStorage에 명시적으로 저장
+                // 오늘 두 번째 이후 접속: 4개 추가
+                newQuizCount = 4;
+                console.log(`[${difficulty}] Same day access. Adding ${newQuizCount} new quizzes.`);
             }
+
+            // 2. 현재 풀에 없는 전체 문제 ID 목록 가져오기
+            const allQuizIds = mockQuizzesArray
+                .filter(q => q.difficulty === difficulty)
+                .map(q => q.id);
+
+            const unusedIds = allQuizIds.filter(id => !currentPool.includes(id));
+
+            // 3. 신규 문제 랜덤으로 선택하여 풀에 추가
+            if (unusedIds.length > 0) {
+                const shuffledUnused = unusedIds.sort(() => 0.5 - Math.random());
+                const toAdd = shuffledUnused.slice(0, newQuizCount);
+                
+                // 기존 풀에 추가
+                quizState.pools[difficulty] = [...currentPool, ...toAdd];
+                
+                console.log(`[${difficulty}] Added ${toAdd.length} new quizzes. Total pool size: ${quizState.pools[difficulty].length}`);
+            } else {
+                console.log(`[${difficulty}] No more unused quizzes to add.`);
+            }
+            
+            // 4. 상태 저장
+            await saveQuizState();
         }
+
+        /** @description 퀴즈를 시작합니다. */
+        window.startNewQuiz = async (difficulty) => {
+            selectedDifficulty = difficulty;
+            
+            // 1. 퀴즈 풀 업데이트 로직 실행 (8개 또는 4개 추가)
+            await updateQuizPool(difficulty);
+
+            // 2. 현재 사용 가능한 풀 가져오기
+            const availableIds = quizState.pools[difficulty];
+
+            // 3. 퀴즈 세션 생성 (최대 10개)
+            if (availableIds.length === 0) {
+                contentDiv.innerHTML = `<p class="text-center text-red-400">현재 선택 가능한 퀴즈가 없습니다.</p>`;
+                return;
+            }
+
+            // 풀에서 랜덤으로 10문제 선택 (풀이 10개 미만이면 모두 선택)
+            const quizIdsForSession = availableIds
+                .sort(() => 0.5 - Math.random())
+                .slice(0, 10);
+            
+            // ID를 기반으로 실제 퀴즈 객체 로드
+            currentQuizSet = quizIdsForSession.map(id => allQuizzes[id]);
+            currentQuizIndex = 0;
+            
+            // 퀴즈 시작
+            renderQuizQuestion();
+        };
 
 
         // =========================================================================
-        // 4. UI 렌더링 및 로직
+        // 6. UI 렌더링 및 로직
         // =========================================================================
 
         /** @description 메인 메뉴를 렌더링합니다. */
@@ -285,7 +468,13 @@
             currentQuizSet = [];
             currentQuizIndex = 0;
 
-            const reviewItems = quizHistory.filter(h => !h.isCorrect).length;
+            // 복습 모드를 위한 틀린 문제 개수 계산 (중복 ID 제거)
+            const incorrectQuizIds = [...new Set(quizHistory
+                .filter(h => !h.isCorrect)
+                .map(h => h.quizId)
+            )];
+            const reviewItems = incorrectQuizIds.length;
+            
             const totalPlayed = quizHistory.length;
             const correctCount = quizHistory.filter(h => h.isCorrect).length;
             const accuracy = totalPlayed > 0 ? ((correctCount / totalPlayed) * 100).toFixed(1) : 0;
@@ -337,27 +526,17 @@
                         <p>틀린 문제가 없습니다. 완벽해요!</p>
                     </div>
                 `}
+                
+                <!-- 현재 풀 상태 (디버그/정보용) -->
+                <div class="mt-6 p-4 text-xs text-gray-400 bg-[#2e2e4d] rounded-xl">
+                    <p class="font-bold mb-1">풀 상태 (오늘 날짜: ${getTodayDate()})</p>
+                    ${['Easy', 'Normal', 'Hard'].map(diff => `
+                        <p>• ${diff}: ${quizState.pools[diff]?.length || 0} / ${mockQuizzesArray.filter(q => q.difficulty === diff).length} 문제</p>
+                    `).join('')}
+                </div>
             `;
         };
         
-        /** @description 퀴즈를 시작합니다. */
-        window.startNewQuiz = (difficulty) => {
-            selectedDifficulty = difficulty;
-            quizzes = mockQuizzes.filter(q => q.difficulty === difficulty);
-            
-            // 10문제 랜덤 추출
-            const shuffled = quizzes.sort(() => 0.5 - Math.random());
-            currentQuizSet = shuffled.slice(0, 10);
-            currentQuizIndex = 0;
-            
-            // 퀴즈 시작
-            if (currentQuizSet.length > 0) {
-                renderQuizQuestion();
-            } else {
-                contentDiv.innerHTML = `<p class="text-center text-red-400">해당 난이도의 퀴즈가 부족합니다.</p>`;
-            }
-        };
-
         /** @description 현재 퀴즈 문제를 렌더링하고 타이머를 시작합니다. */
         function renderQuizQuestion() {
             if (currentQuizIndex >= currentQuizSet.length) {
@@ -372,10 +551,13 @@
             if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 timeRemaining--;
-                document.getElementById('quiz-timer').innerText = timeRemaining.toString().padStart(2, '0');
+                const timerElement = document.getElementById('quiz-timer');
+                if (timerElement) {
+                    timerElement.innerText = timeRemaining.toString().padStart(2, '0');
+                }
                 if (timeRemaining <= 0) {
                     clearInterval(timerInterval);
-                    handleAnswer(null, currentQuiz.answerIndex); // 시간 초과 처리
+                    handleAnswer(null, -1); // 시간 초과 처리 (-1은 사용자 선택이 없었음을 의미)
                 }
             }, 1000);
 
@@ -409,23 +591,22 @@
                             </button>
                         `).join('')}
                     </div>
-                    <!-- 해설 영역 (초기에는 비어 있음) -->
+                    <!-- 해설 영역 -->
                     <div id="quiz-explanation" class="mt-6 hidden"></div>
                 </div>
             `;
         }
         
-        /** * @description 정답을 확인하고 UI를 업데이트합니다. 
-         * @param {HTMLElement|null} selectedButton - 사용자가 클릭한 버튼
-         * @param {number} selectedIndex - 사용자가 선택한 인덱스 (시간 초과 시 null)
-         */
+        /** @description 정답을 확인하고 UI를 업데이트합니다. */
         window.handleAnswer = (selectedButton, selectedIndex) => {
             if (timerInterval) clearInterval(timerInterval); // 타이머 중지
             
             const optionsDiv = document.getElementById('quiz-options');
             const buttons = optionsDiv.querySelectorAll('button');
             const currentQuiz = currentQuizSet[currentQuizIndex];
-            const isCorrect = selectedIndex === currentQuiz.answerIndex;
+            
+            // selectedIndex가 -1이면 시간 초과를 의미합니다.
+            const isCorrect = selectedIndex !== -1 && selectedIndex === currentQuiz.answerIndex;
             
             // 모든 버튼 비활성화
             buttons.forEach(btn => btn.disabled = true);
@@ -445,8 +626,14 @@
                     btn.classList.add('faded-out');
                 }
             });
+
+            // 시간 초과 메시지 표시
+            if (selectedIndex === -1) {
+                 const questionEl = document.getElementById('quiz-question');
+                 questionEl.innerHTML = `<span class="text-red-500">시간 초과!</span><br/>${currentQuiz.question}`;
+            }
             
-            // 해설 렌더링 **(새로 추가된 부분)**
+            // 해설 렌더링
             const explanationDiv = document.getElementById('quiz-explanation');
             explanationDiv.classList.remove('hidden');
             explanationDiv.innerHTML = `
@@ -456,7 +643,7 @@
                 </div>
             `;
             
-            // 결과 저장
+            // 결과 저장 (시간 초과 시에도 오답으로 저장)
             saveQuizResult(currentQuiz.id, isCorrect, currentQuiz.difficulty);
             
             // 다음 문제 버튼 추가
@@ -477,8 +664,9 @@
             const total = currentQuizSet.length;
             // 퀴즈 세트의 ID를 기준으로 정답/오답을 계산합니다.
             const quizSetIds = currentQuizSet.map(q => q.id);
-            const recentHistory = quizHistory.filter(h => quizSetIds.includes(h.quizId));
-            const correctAnswers = recentHistory.filter(h => h.isCorrect && quizSetIds.includes(h.quizId)).length;
+            // 최근 퀴즈 세션의 결과만 필터링합니다.
+            const recentHistory = quizHistory.filter(h => quizSetIds.includes(h.quizId)); 
+            const correctAnswers = recentHistory.filter(h => h.isCorrect).length;
             const score = correctAnswers / total;
 
             contentDiv.innerHTML = `
@@ -501,32 +689,32 @@
         }
 
         // =========================================================================
-        // 5. 복습 모드
+        // 7. 복습 모드
         // =========================================================================
-
-        let reviewSet = []; // 복습 문제 목록 (Quiz 객체로 구성)
 
         /** @description 복습 모드를 시작합니다. */
         window.startReviewMode = () => {
             if (timerInterval) clearInterval(timerInterval);
             
-            // 틀린 문제의 quizId 목록을 가져옵니다.
+            // 1. 틀린 문제의 고유 ID 목록을 가져옵니다.
             const incorrectQuizIds = [...new Set(quizHistory
                 .filter(h => !h.isCorrect)
                 .map(h => h.quizId)
             )];
 
-            // 전체 퀴즈 목록에서 해당 ID의 문제만 필터링합니다.
-            const allQuizzes = [...mockQuizzes];
-            reviewSet = allQuizzes.filter(quiz => incorrectQuizIds.includes(quiz.id));
+            // 2. 전체 퀴즈 목록에서 해당 ID의 문제만 필터링합니다.
+            // allQuizzes 맵에서 퀴즈 객체를 가져옵니다.
+            const reviewSetTemp = incorrectQuizIds
+                .map(id => allQuizzes[id])
+                .filter(q => q !== undefined); // mockQuizzes에 없는 ID는 제외
 
-            if (reviewSet.length === 0) {
-                // 이미 복습이 완료되어 틀린 문제가 없는 경우
+            if (reviewSetTemp.length === 0) {
                 endReview(); 
                 return;
             }
             
-            // 복습 모드는 섞지 않고, 배열 순서대로 진행합니다.
+            // 3. 복습할 문제를 리뷰 세트로 지정하고 인덱스 초기화
+            reviewSet = reviewSetTemp;
             currentQuizIndex = 0;
             renderReviewQuestion();
         };
@@ -558,7 +746,7 @@
                         </p>
                     </div>
                     
-                    <!-- 정답 및 해설 표시 (복습 모드 UI 업데이트) -->
+                    <!-- 정답 및 해설 표시 -->
                     <div class="bg-[#3e3e5d] p-4 rounded-xl mb-6">
                         <p class="text-lg font-bold text-green-400 mb-2">✅ 정답: ${currentQuiz.options[currentQuiz.answerIndex]}</p>
                         <p class="text-lg font-bold text-indigo-300 mt-4 mb-2">💡 해설</p>
@@ -588,27 +776,28 @@
         
         /** @description 복습 목록에서 해당 문제를 제거하고 히스토리를 업데이트합니다. */
         window.removeReviewItem = (quizId) => {
-            // 1. 로컬 히스토리에서 해당 문제의 오답 기록만 제거
+            // 1. 로컬 히스토리에서 해당 문제의 오답 기록만 제거 (다시는 복습 목록에 나타나지 않도록)
             quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
-
-            if (db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-')) {
-                // Firestore 환경 (여기는 로컬 상태만 변경)
-            } else {
-                 // LocalStorage에 명시적으로 저장 (데이터 보존)
-                saveQuizHistory(quizHistory);
-            }
             
-            // 2. 현재 복습 셋에서 해당 문제 제거
-            reviewSet = reviewSet.filter(q => q.id !== quizId);
-            
-            // 3. 인덱스 조정 (제거 후 다음 인덱스가 범위를 벗어나지 않도록)
-            if (currentQuizIndex >= reviewSet.length && reviewSet.length > 0) {
-                // 마지막 문제를 제거했을 경우 인덱스를 이전으로 되돌림
-                currentQuizIndex = Math.max(0, reviewSet.length - 1);
-            } else if (reviewSet.length === 0) {
-                 // 모든 문제가 제거된 경우 (endReview()가 처리함)
+            // LocalStorage에 저장 (익명 사용자 또는 비-Firestore 환경)
+            const isFirestore = db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-');
+            if (!isFirestore) {
+                 saveQuizHistory(quizHistory);
             } 
-            // 4. 다음 문제 렌더링
+            
+            // 2. 현재 복습 셋(`reviewSet`)에서 해당 문제 제거
+            const newReviewSet = reviewSet.filter(q => q.id !== quizId);
+            reviewSet = newReviewSet;
+            
+            // 3. 인덱스 조정 및 다음 렌더링
+            if (reviewSet.length === 0) {
+                currentQuizIndex = 0; 
+                endReview();
+                return;
+            } else {
+                // 현재 인덱스가 새 배열 길이를 초과하지 않도록 보정
+                currentQuizIndex = Math.min(currentQuizIndex, reviewSet.length - 1);
+            } 
             renderReviewQuestion();
         };
 
@@ -632,7 +821,7 @@
         }
         
         // =========================================================================
-        // 6. 초기 로드
+        // 8. 초기 로드
         // =========================================================================
 
         initializeFirebase();
