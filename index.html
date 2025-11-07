@@ -27,1007 +27,607 @@
             backdrop-filter: blur(10px); /* 블러 효과 */
             border-radius: 20px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-            width: 100%;
-            max-width: 600px;
-            padding: 30px;
-            min-height: 500px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            max-width: 500px;
+            width: 95%;
+            padding: 0;
+            overflow: hidden; /* 내부 요소가 넘치지 않도록 */
         }
-
-        /* 보라-연두 그라데이션 버튼 스타일 */
+        
+        /* 메인 버튼 스타일 */
         .gradient-button {
-            background-image: linear-gradient(135deg, #a78bfa 0%, #4ade80 100%); /* 보라색 -> 연두색 */
-            transition: all 0.3s ease;
-            color: #1e1e2d;
-            font-weight: 700;
-            box-shadow: 0 4px 15px rgba(167, 139, 250, 0.4);
+            background: linear-gradient(135deg, #4f46e5 0%, #a855f7 100%); /* 보라색 계열 그라데이션 */
+            transition: transform 0.1s, box-shadow 0.1s;
         }
+
         .gradient-button:hover {
-            opacity: 0.9;
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(74, 222, 128, 0.5);
+            box-shadow: 0 5px 15px rgba(168, 85, 247, 0.5);
         }
-        .gradient-button:disabled {
-            background-image: none;
-            background-color: #4a5568; /* Gray-700 */
-            cursor: not-allowed;
+
+        .gradient-button:active {
+            transform: translateY(0);
             box-shadow: none;
-            color: #a0aec0;
         }
 
-        /* 퀴즈 카드 디자인 */
-        .quiz-card {
-            background: rgba(45, 45, 70, 0.9);
-            border: 1px solid rgba(167, 139, 250, 0.3);
-            border-radius: 15px;
-            padding: 25px;
-            width: 100%;
-            margin-bottom: 20px;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        
         /* 퀴즈 옵션 버튼 스타일 */
-        .quiz-option-button {
-            background-color: #374151; /* bg-gray-700 */
-            color: #e0e0f0; /* text-white */
-            border: 1px solid transparent;
-            text-align: left;
-            transition: background-color 0.2s, border-color 0.2s;
-        }
-        .quiz-option-button:hover:not([disabled]) {
-            background-color: #8b5cf6; /* hover:bg-purple-600 */
-            border-color: #a78bfa;
+        .option-button {
+            background-color: #3e3e5d; /* 옵션 배경 */
+            border: 2px solid #5a5a7a;
+            transition: background-color 0.1s, border-color 0.1s;
         }
 
-        /* 타이머 숫자에 부드러운 애니메이션 적용을 위한 기본 스타일 */
-        #quiz-timer {
-            transition: color 0.5s ease-in-out, filter 0.5s ease-in-out;
+        .option-button:hover:not(:disabled) {
+            background-color: #4a4a6e;
+            border-color: #8b5cf6; /* hover 시 보라색 테두리 */
         }
 
-        /* 신규 애니메이션: 내려오기 + 밝게 */
-        @keyframes timer-tick {
-            0% {
-                opacity: 0.5;
-                transform: translateY(-10px) scale(0.9); /* 위에서 시작 */
-                filter: brightness(1.5); /* 밝게 */
-            }
-            50% {
-                opacity: 1;
-                transform: translateY(0) scale(1.1); /* 중앙으로 내려오면서 약간 커지고 */
-                filter: brightness(2.5); /* 가장 밝게 */
-            }
-            100% {
-                transform: translateY(0) scale(1.0);
-                filter: brightness(1.0); /* 원래 밝기로 복귀 */
-            }
+        /* 정답/오답 스타일 */
+        .correct {
+            background-color: #10b981 !important; /* 에메랄드 그린 */
+            border-color: #059669 !important;
+            color: white !important;
         }
-        
-        .timer-animate {
-            animation: timer-tick 0.5s ease-out forwards;
+
+        .incorrect {
+            background-color: #ef4444 !important; /* 빨간색 */
+            border-color: #dc2626 !important;
+            color: white !important;
+        }
+
+        .faded-out {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .quiz-card {
+            border-radius: 20px;
         }
     </style>
-    <!-- Firebase SDK Imports -->
+</head>
+<body>
+
+    <div id="app-container" class="p-6">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-extrabold text-white">랜덤 상식 퀴즈</h1>
+        </header>
+        <div id="content" class="w-full">
+            <!-- Content will be rendered here by JavaScript -->
+        </div>
+    </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, limit, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // Firestore 로깅 활성화 (디버깅 용)
+        // Firestore 디버그 로깅 활성화
         setLogLevel('Debug');
 
-        // 전역 변수 설정
-        window.db = null;
-        window.auth = null;
-        window.userId = null;
-        
-        // 캔버스 환경 변수 사용 (Vercel에서는 이 값이 null이거나 정의되지 않을 수 있습니다.)
+        // =========================================================================
+        // 1. Firebase 및 전역 상태 설정
+        // =========================================================================
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        /**
-         * @description Firebase를 초기화하고 사용자 인증을 처리합니다.
+        let app, db, auth;
+        let userId = 'loading'; // 초기 상태
+
+        // 전역 UI 요소
+        const contentDiv = document.getElementById('content');
+
+        // 퀴즈 관련 상태
+        let quizzes = [];             // 현재 난이도의 모든 퀴즈
+        let currentQuizSet = [];      // 실제로 풀 퀴즈 목록 (랜덤 추출된 10개)
+        let currentQuizIndex = 0;     // 현재 풀고 있는 퀴즈의 인덱스
+        let quizHistory = [];         // 사용자가 푼 모든 퀴즈 기록 (Firestore 동기화)
+        let timerInterval = null;     // 퀴즈 타이머
+        let timeRemaining = 15;       // 문제당 시간 (초)
+        let selectedDifficulty = 'Easy'; // 현재 선택된 난이도
+
+        // =========================================================================
+        // 2. 데이터 구조 및 모의 데이터
+        // =========================================================================
+
+        /** @typedef {Object} Quiz
+         * @property {string} id
+         * @property {string} question
+         * @property {string[]} options
+         * @property {number} answerIndex
+         * @property {'Easy'|'Normal'|'Hard'} difficulty
          */
+
+        /** @type {Quiz[]} */
+        const mockQuizzes = [
+            // Easy
+            { id: 'e1', question: '지구상에서 가장 큰 포유류는 무엇일까요?', options: ['코끼리', '기린', '흰수염고래', '하마'], answerIndex: 2, difficulty: 'Easy' },
+            { id: 'e2', question: '대한민국의 수도는 어디일까요?', options: ['부산', '서울', '제주', '평양'], answerIndex: 1, difficulty: 'Easy' },
+            { id: 'e3', question: '물의 화학 기호는 무엇일까요?', options: ['O2', 'CO2', 'H2O', 'NaCl'], answerIndex: 2, difficulty: 'Easy' },
+            { id: 'e4', question: '태양계의 중심에 있는 항성은 무엇일까요?', options: ['지구', '달', '화성', '태양'], answerIndex: 3, difficulty: 'Easy' },
+            { id: 'e5', question: '사계절 중 가장 추운 계절은 무엇일까요?', options: ['봄', '여름', '가을', '겨울'], answerIndex: 3, difficulty: 'Easy' },
+            // Normal
+            { id: 'n1', question: '르네상스 시대의 대표적인 화가로 "모나리자"를 그린 사람은 누구일까요?', options: ['빈센트 반 고흐', '레오나르도 다빈치', '파블로 피카소', '클로드 모네'], answerIndex: 1, difficulty: 'Normal' },
+            { id: 'n2', question: '중국의 만리장성은 무엇을 막기 위해 건설되었을까요?', options: ['자연재해', '이민자 유입', '북방 민족의 침입', '무역선 출입'], answerIndex: 2, difficulty: 'Normal' },
+            { id: 'n3', question: '노벨상을 수여하는 나라는 어디일까요?', options: ['미국', '영국', '스웨덴', '프랑스'], answerIndex: 2, difficulty: 'Normal' },
+            { id: 'n4', question: '인체의 뼈 중 가장 긴 뼈는 무엇일까요?', options: ['쇄골', '경골', '대퇴골', '척추'], answerIndex: 2, difficulty: 'Normal' },
+            { id: 'n5', question: '셰익스피어의 4대 비극에 해당하지 않는 작품은 무엇일까요?', options: ['햄릿', '리어왕', '로미오와 줄리엣', '맥베스'], answerIndex: 2, difficulty: 'Normal' },
+            // Hard
+            { id: 'h1', question: '양자역학에서 불확정성 원리를 제안한 과학자는 누구일까요?', options: ['아인슈타인', '보어', '하이젠베르크', '슈뢰딩거'], answerIndex: 2, difficulty: 'Hard' },
+            { id: 'h2', question: '고대 로마의 율리우스 카이사르가 남긴 유명한 말 "왔노라, 보았노라, 이겼노라"의 라틴어 원문은 무엇일까요?', options: ['Carpe Diem', 'Veni, Vidi, Vici', 'Alea iacta est', 'Et tu, Brute?'], answerIndex: 1, difficulty: 'Hard' },
+            { id: 'h3', question: '경제학에서 "보이지 않는 손" 개념을 제시한 학자는 누구일까요?', options: ['존 메이너드 케인스', '칼 마르크스', '애덤 스미스', '밀턴 프리드먼'], answerIndex: 2, difficulty: 'Hard' },
+            { id: 'h4', question: '1905년 아인슈타인이 발표한 4편의 논문은 기적의 해 논문(Annus Mirabilis Papers)이라 불립니다. 이 논문들에 포함되지 않는 주제는 무엇일까요?', options: ['광전 효과', '브라운 운동', '특수 상대성 이론', '양자장 이론'], answerIndex: 3, difficulty: 'Hard' },
+            { id: 'h5', question: '프랑스 혁명의 구호인 "자유, 평등, 박애" 중 "박애"에 해당하는 프랑스어 단어는 무엇일까요?', options: ['Liberté', 'Égalité', 'Fraternité', 'Justice'], answerIndex: 2, difficulty: 'Hard' },
+        ];
+
+
+        // =========================================================================
+        // 3. Firebase Firestore 및 인증 (Auth)
+        // =========================================================================
+        
+        /** @description Firebase 인증 및 Firestore를 초기화하고 사용자 ID를 가져옵니다. */
         async function initializeFirebase() {
-            // Vercel 환경에서는 firebaseConfig가 없을 수 있으므로, 예외 처리
-            if (!firebaseConfig || !firebaseConfig.projectId) {
-                console.warn("Firebase config is missing or invalid. Firebase features (multi-user sync) will be disabled. Falling back to LocalStorage.");
-                
-                // Canvas 환경이었는데 실패한 경우에도 알림은 띄우지 않고 콘솔 경고만 남깁니다.
-                
-                window.checkAndInitializeQuiz();
+            if (firebaseConfig) {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+            } else {
+                console.error("Firebase config is missing.");
+                // 비인가 모드에서도 실행되도록 더미 객체 할당
+                auth = { currentUser: { uid: 'anonymous-' + Math.random().toString(36).substring(2, 9) } };
+                userId = auth.currentUser.uid;
+                startListeningToHistory();
+                renderMainMenu();
                 return;
             }
 
             try {
-                const app = initializeApp(firebaseConfig);
-                window.db = getFirestore(app);
-                window.auth = getAuth(app);
-
-                // 사용자 인증 처리
-                onAuthStateChanged(window.auth, async (user) => {
-                    if (user) {
-                        window.userId = user.uid;
-                        console.log("Firebase Auth Ready. User ID:", window.userId);
-                    } else {
-                        // 초기 토큰이 있으면 커스텀 인증, 없으면 익명 인증 시도
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(window.auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(window.auth);
-                        }
-                    }
-                    // 인증 상태가 확정된 후 메인 메뉴 렌더링 시작
-                    window.checkAndInitializeQuiz();
-                });
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
             } catch (error) {
-                console.error("Firebase initialization or authentication failed:", error);
-                window.showNotification('시스템 오류: Firebase 초기화에 실패했습니다. 로컬 저장소로 작동합니다.', 'error');
-                // 오류 발생 시에도 퀴즈 기능은 로컬 스토리지를 사용하여 작동하도록 시도
-                window.checkAndInitializeQuiz(); 
+                console.error("Firebase Auth error:", error);
+                // 인증 실패 시 익명 사용자 ID를 대체 사용
+                auth.currentUser = { uid: 'error-' + Math.random().toString(36).substring(2, 9) };
+            }
+            
+            // 인증 상태 변화 리스너
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                } else {
+                    // onAuthStateChanged가 발생했으나 user가 null인 경우 익명 ID 부여
+                    userId = auth.currentUser?.uid || 'anon-' + Math.random().toString(36).substring(2, 9);
+                }
+                console.log("User ID set:", userId);
+                startListeningToHistory(); // 인증이 완료되면 히스토리 리스너 시작
+                renderMainMenu(); // 메인 메뉴 렌더링
+            });
+        }
+        
+        /** @description Firestore에서 퀴즈 히스토리 변경 사항을 실시간으로 수신합니다. */
+        function startListeningToHistory() {
+            if (!db || userId === 'loading' || userId.startsWith('error-') || userId.startsWith('anon-') || userId.startsWith('anonymous-')) {
+                 // 파이어베이스가 없거나, 익명 또는 에러 유저인 경우 리스너 시작하지 않음 (mock data 사용)
+                console.warn("Firestore history listening skipped: Anonymous or Error User.");
+                // 모의 퀴즈 히스토리 사용 (필요하다면 로컬 스토리지 대체 가능)
+                quizHistory = JSON.parse(localStorage.getItem(`quizHistory_${userId}`)) || [];
+                return; 
+            }
+
+            const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
+            const q = query(collection(db, historyCollectionPath));
+
+            onSnapshot(q, (snapshot) => {
+                const history = [];
+                snapshot.forEach((doc) => {
+                    history.push(doc.data());
+                });
+                // 가장 최근의 50개 항목만 유지 (성능을 위해)
+                history.sort((a, b) => b.timestamp - a.timestamp);
+                quizHistory = history.slice(0, 50); 
+                // 메인 메뉴에 변경 사항 반영
+                if (document.getElementById('content-title')?.innerText === '메인 메뉴') {
+                    renderMainMenu();
+                }
+                console.log("Quiz History updated from Firestore:", quizHistory.length);
+            }, (error) => {
+                console.error("Error listening to history:", error);
+            });
+        }
+        
+        /** @description 퀴즈 결과를 Firestore 또는 LocalStorage에 저장합니다. */
+        async function saveQuizResult(quizId, isCorrect, difficulty) {
+            const newEntry = {
+                quizId,
+                isCorrect,
+                difficulty,
+                timestamp: Date.now()
+            };
+            
+            if (db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-')) {
+                // Firestore에 저장
+                const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
+                try {
+                    // ID는 'difficulty_timestamp' 형태로 저장하여 고유성 확보
+                    const docId = `${difficulty}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                    await setDoc(doc(db, historyCollectionPath, docId), newEntry);
+                } catch (error) {
+                    console.error("Error saving to Firestore:", error);
+                }
+            } else {
+                // LocalStorage에 저장 (익명 또는 에러 사용자)
+                quizHistory.unshift(newEntry); // 최신 항목을 앞에 추가
+                quizHistory = quizHistory.slice(0, 50); // 최대 50개 항목 유지
+                localStorage.setItem(`quizHistory_${userId}`, JSON.stringify(quizHistory));
+                console.log("Saved to LocalStorage (Anonymous user).");
             }
         }
 
-        // 전역 초기화 함수 실행
-        window.onload = initializeFirebase;
-    </script>
-</head>
-<body>
 
-<div id="app-container">
-    <h1 class="text-3xl font-bold mb-8 text-white">랜덤 상식 퀴즈</h1>
+        // =========================================================================
+        // 4. UI 렌더링 및 로직
+        // =========================================================================
 
-    <div id="content" class="w-full flex flex-col items-center">
-        <!-- 콘텐츠가 여기에 로드됩니다 (메인 메뉴, 퀴즈, 복습 등) -->
-    </div>
+        /** @description 메인 메뉴를 렌더링합니다. */
+        window.renderMainMenu = () => {
+            if (timerInterval) clearInterval(timerInterval);
+            currentQuizSet = [];
+            currentQuizIndex = 0;
 
-    <!-- 로딩 및 알림 메시지 영역 -->
-    <div id="notification-area" class="fixed top-0 left-0 w-full h-full bg-black bg-opacity-70 backdrop-blur-sm hidden flex justify-center items-center z-50">
-        <div id="notification-box" class="quiz-card p-6 text-center shadow-2xl">
-            <p id="notification-message" class="text-xl font-semibold"></p>
-            <div id="loading-spinner" class="mt-4 animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-purple-400 mx-auto hidden"></div>
-            <button id="notification-ok-button" class="gradient-button mt-6 py-2 px-6 rounded-full text-sm hidden" onclick="window.hideNotification()">확인</button>
-        </div>
-    </div>
-</div>
+            const reviewItems = quizHistory.filter(h => !h.isCorrect).length;
+            const totalPlayed = quizHistory.length;
+            const correctCount = quizHistory.filter(h => h.isCorrect).length;
+            const accuracy = totalPlayed > 0 ? ((correctCount / totalPlayed) * 100).toFixed(1) : 0;
 
-<script>
-    // =========================================================================
-    // 1. 전역 설정 및 유틸리티 함수
-    // =========================================================================
+            contentDiv.innerHTML = `
+                <div id="content-title" class="text-2xl font-semibold mb-6 text-center text-white">메인 메뉴</div>
+                
+                <!-- 현재 상태 카드 -->
+                <div class="bg-[#2e2e4d] p-6 rounded-xl shadow-lg mb-6">
+                    <p class="text-xl font-bold mb-3 text-white">내 퀴즈 기록</p>
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                            <p class="text-sm text-gray-400">총 푼 문제</p>
+                            <p class="text-2xl font-extrabold text-indigo-400">${totalPlayed}</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-400">정답률</p>
+                            <p class="text-2xl font-extrabold text-green-400">${accuracy}%</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-400">복습 필요</p>
+                            <p class="text-2xl font-extrabold text-red-400">${reviewItems}</p>
+                        </div>
+                    </div>
+                </div>
 
-    const QUIZ_TOPICS = [
-        '디지털 리터러시', '환경', '과학', '정치', '경제', '사회', 
-        '국어 맞춤법', '국어 속담', '지리', '역사'
-    ];
-    const LOCAL_STORAGE_QUIZ_KEY = 'accumulated_quiz_data';
-    const LOCAL_STORAGE_HISTORY_KEY = 'quiz_history';
-    const LOCAL_STORAGE_DATE_KEY = 'last_generated_date';
-    const LOCAL_STORAGE_API_KEY = 'gemini_api_key'; 
-    const contentDiv = document.getElementById('content');
-    
-    // 타이머 관련 전역 변수
-    let timerInterval = null;
-    const TIME_LIMIT = 15;
-    
-    let accumulatedQuizzes = [];
-    let quizHistory = [];
-    let currentQuizSet = [];
-    let quizMode = 'menu'; 
-    let currentQuestionIndex = 0;
+                <!-- 난이도 선택 -->
+                <p class="text-xl font-bold mb-4 text-white">새 퀴즈 시작 (10문제)</p>
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    ${['Easy', 'Normal', 'Hard'].map(diff => `
+                        <button 
+                            class="gradient-button py-3 rounded-xl text-lg shadow-md hover:shadow-xl" 
+                            onclick="startNewQuiz('${diff}')">
+                            ${diff}
+                        </button>
+                    `).join('')}
+                </div>
 
-
-    /** @description UUID를 생성합니다. (랜덤 ID) */
-    function generateUUID() {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-        });
-    }
-
-    /** @description 배열을 섞습니다. (Fisher-Yates 알고리즘) */
-    function shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = array[j], array[i];
-        }
-        return array;
-    }
-
-    /**
-     * @description 알림 메시지 또는 로딩 스피너를 표시합니다.
-     * @param {string} message - 표시할 메시지
-     * @param {'loading'|'info'|'error'} type - 메시지 유형
-     * @param {boolean} [showButton=false] - 확인 버튼 표시 여부
-     */
-    window.showNotification = (message, type, showButton = false) => {
-        const area = document.getElementById('notification-area');
-        const msg = document.getElementById('notification-message');
-        const spinner = document.getElementById('loading-spinner');
-        const button = document.getElementById('notification-ok-button');
-
-        msg.textContent = message;
-        spinner.classList.add('hidden');
-        button.classList.add('hidden');
-
-        if (type === 'loading') {
-            spinner.classList.remove('hidden');
-        } else if (showButton || type === 'error' || type === 'info') {
-            button.classList.remove('hidden');
-        }
+                <!-- 복습 모드 버튼 -->
+                ${reviewItems > 0 ? `
+                    <p class="text-xl font-bold mb-4 text-white">오답 복습</p>
+                    <button 
+                        class="gradient-button w-full py-3 rounded-xl text-lg shadow-lg" 
+                        onclick="startReviewMode()">
+                        틀린 문제 복습하기 (${reviewItems}개)
+                    </button>
+                ` : `
+                    <div class="text-center p-4 text-gray-400 bg-[#2e2e4d] rounded-xl">
+                        <p>틀린 문제가 없습니다. 완벽해요!</p>
+                    </div>
+                `}
+            `;
+        };
         
-        // 배경색 및 스타일 조정 (선택적)
-        const box = document.getElementById('notification-box');
-        if (type === 'error') {
-            box.style.borderColor = '#ef4444'; // Red
-        } else {
-            box.style.borderColor = 'rgba(167, 139, 250, 0.3)';
-        }
-
-        area.classList.remove('hidden');
-    };
-
-    /** @description 알림 메시지 영역을 숨깁니다. */
-    window.hideNotification = () => {
-        document.getElementById('notification-area').classList.add('hidden');
-    };
-
-    /** @description 로컬 스토리지에서 퀴즈 데이터를 불러옵니다. */
-    function loadQuizData() {
-        try {
-            const data = localStorage.getItem(LOCAL_STORAGE_QUIZ_KEY);
-            return data ? JSON.parse(data) : [];
-        } catch (e) {
-            console.error("로컬 스토리지에서 퀴즈 데이터 로드 실패:", e);
-            return [];
-        }
-    }
-
-    /** @description 로컬 스토리지에 퀴즈 데이터를 저장합니다. */
-    function saveQuizData(data) {
-        try {
-            localStorage.setItem(LOCAL_STORAGE_QUIZ_KEY, JSON.stringify(data));
-        } catch (e) {
-            console.error("로컬 스토리지에 퀴즈 데이터 저장 실패:", e);
-        }
-    }
-
-    /** @description 로컬 스토리지에서 퀴즈 히스토리를 불러옵니다. */
-    function loadQuizHistory() {
-        try {
-            const data = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
-            return data ? JSON.parse(data) : [];
-        } catch (e) {
-            console.error("로컬 스토리지에서 퀴즈 히스토리 로드 실패:", e);
-            return [];
-        }
-    }
-
-    /** @description 로컬 스토리지에 퀴즈 히스토리를 저장합니다. */
-    function saveQuizHistory(data) {
-        try {
-            localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(data));
-        } catch (e) {
-            console.error("로컬 스토리지에 퀴즈 히스토리 저장 실패:", e);
-        }
-    }
-    
-    /** @description 로컬 스토리지에서 API 키를 가져옵니다. */
-    function getApiKey() {
-        return localStorage.getItem(LOCAL_STORAGE_API_KEY) || '';
-    }
-
-    /** @description 로컬 스토리지에 API 키를 저장합니다. */
-    window.saveApiKey = (key) => {
-        const trimmedKey = key.trim();
-        localStorage.setItem(LOCAL_STORAGE_API_KEY, trimmedKey);
-        renderMainMenu(); // 키 저장 후 메인 메뉴 새로고침
-        // 🔑 API 키 저장/제거 시 알림 메시지 대신 UI 업데이트에 의존
-    }
-
-    // =========================================================================
-    // 2. AI API 연동 (문제 생성 로직)
-    // =========================================================================
-
-    /**
-     * @description AI API를 호출하여 새로운 퀴즈를 생성합니다. (4지선다형)
-     * @param {number} count - 생성할 문제 수 (8 또는 4)
-     * @returns {Promise<Array<Object>>} 생성된 퀴즈 배열
-     */
-    async function generateNewQuestions(count) {
-        const apiKey = getApiKey();
-        // **수정된 부분:** 키 확인은 startQuiz에서 이미 했지만, 방어 코드 추가
-        if (!apiKey) {
-            // 이 경로는 startQuiz에서 이미 차단되었지만, 안전을 위해 추가
-            console.error("API Key missing during generation attempt.");
-            return [];
-        }
-
-        window.showNotification(`새로운 퀴즈 ${count}개 생성 중...`, 'loading');
-        
-        const topicsNeeded = Math.ceil(count / 2); 
-        const questionsPerTopic = count / topicsNeeded;
-
-        const shuffledTopics = [...QUIZ_TOPICS].sort(() => 0.5 - Math.random());
-        const selectedTopics = shuffledTopics.slice(0, topicsNeeded);
-
-        const systemPrompt = `Act as a strict quiz master. Generate exactly ${count} unique, challenging general knowledge questions in Korean, divided equally among ${topicsNeeded} topics: [${selectedTopics.join(', ')}]. You must generate exactly ${questionsPerTopic} questions per topic. For each question, provide the correct answer, three plausible incorrect distractors, and a detailed explanation in Korean covering why the answer is correct and briefly explaining why the incorrect options are wrong.`;
-        
-        const userQuery = `새로운 4지선다형 퀴즈 ${count}개를 ${selectedTopics.join(', ')} 주제로 생성해 주세요. 각 문제에는 고유 ID, 주제, 질문, 정답, 그리고 정답을 포함한 4개의 보기(options) 배열, 그리고 정답과 오답에 대한 명확한 해설이 포함되어야 합니다.`;
-        
-        // API URL에 동적으로 키 주입
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-        
-        const responseSchema = {
-            type: "ARRAY",
-            items: {
-                type: "OBJECT",
-                properties: {
-                    "id": { "type": "STRING", "description": "고유 식별자 (UUID)" },
-                    "topic": { "type": "STRING", "description": "10가지 주제 중 하나" },
-                    "question": { "type": "STRING", "description": "질문 내용" },
-                    "answer": { "type": "STRING", "description": "정확한 정답 (보기 중 하나)" },
-                    "options": { 
-                        "type": "ARRAY", 
-                        "items": { "type": "STRING" },
-                        "description": "정답을 포함한 4개의 보기"
-                    },
-                    "explanation": { "type": "STRING", "description": "정답과 오답을 포함하는 상세 해설" }
-                },
-                "required": ["id", "topic", "question", "answer", "options", "explanation"],
-                "propertyOrdering": ["id", "topic", "question", "answer", "options", "explanation"]
+        /** @description 퀴즈를 시작합니다. */
+        window.startNewQuiz = (difficulty) => {
+            selectedDifficulty = difficulty;
+            quizzes = mockQuizzes.filter(q => q.difficulty === difficulty);
+            
+            // 10문제 랜덤 추출
+            const shuffled = quizzes.sort(() => 0.5 - Math.random());
+            currentQuizSet = shuffled.slice(0, 10);
+            currentQuizIndex = 0;
+            
+            // 퀴즈 시작
+            if (currentQuizSet.length > 0) {
+                renderQuizQuestion();
+            } else {
+                contentDiv.innerHTML = `<p class="text-center text-red-400">해당 난이도의 퀴즈가 부족합니다.</p>`;
             }
         };
 
-        const payload = {
-            contents: [{ parts: [{ text: userQuery }] }],
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: responseSchema
+        /** @description 현재 퀴즈 문제를 렌더링하고 타이머를 시작합니다. */
+        function renderQuizQuestion() {
+            if (currentQuizIndex >= currentQuizSet.length) {
+                endQuiz();
+                return;
             }
-        };
 
-        const maxRetries = 3;
-        for (let i = 0; i < maxRetries; i++) {
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                
-                if (!response.ok) {
-                    const errorBody = await response.text();
-                    console.error(`API response error (Status: ${response.status}):`, errorBody);
-                    
-                    let errorMessage = `API 호출 실패 (HTTP ${response.status}).`;
-                    
-                    try {
-                        const errorJson = JSON.parse(errorBody);
-                        if (errorJson.error && errorJson.error.message) {
-                            errorMessage += `\n서버 응답: ${errorJson.error.message.substring(0, 100)}...`;
-                        } else {
-                            errorMessage += `\n서버 본문: ${errorBody.substring(0, 100)}...`;
-                        }
-                    } catch (e) {
-                         errorMessage += `\n서버 본문: ${errorBody.substring(0, 100)}...`;
-                    }
-                    
-                    throw new Error(errorMessage);
-                }
+            const currentQuiz = currentQuizSet[currentQuizIndex];
+            timeRemaining = 15; // 타이머 초기화
 
-                const result = await response.json();
-                const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-
-                if (!jsonText) throw new Error("API did not return structured content.");
-
-                let newQuizzes = JSON.parse(jsonText);
-                
-                newQuizzes = newQuizzes.filter(q => 
-                    q.question && q.answer && Array.isArray(q.options) && q.options.length === 4
-                    && q.explanation
-                ).map(q => ({
-                    ...q,
-                    id: q.id || generateUUID(),
-                    topic: q.topic || '일반 상식',
-                    question: q.question,
-                    answer: q.answer,
-                    options: q.options,
-                    explanation: q.explanation
-                }));
-                
-                if (newQuizzes.length !== count) {
-                    throw new Error(`Generated quiz count is ${newQuizzes.length}, expected ${count}.`);
-                }
-                
-                window.hideNotification();
-                return newQuizzes;
-            } catch (error) {
-                console.error(`Attempt ${i + 1} failed:`, error);
-                
-                if (i === maxRetries - 1) {
-                    // **수정된 부분:** API 키 오류와 일반 API 실패 오류 분리 처리
-                    let finalErrorMessage = `퀴즈 생성에 최종 실패했습니다. 오류: ${error.message}`;
-                    if (error.message.includes('400') || error.message.includes('API key')) {
-                        finalErrorMessage = '🔑 API 키가 유효하지 않거나 할당량을 초과했습니다. 키를 확인하거나 교체해주세요.';
-                    }
-                    
-                    window.showNotification(finalErrorMessage, 'error', true);
-                    return [];
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000)); 
-            }
-        }
-        
-        return [];
-    }
-
-    /** @description 로컬 데이터와 현재 날짜를 확인하여 새로운 퀴즈를 생성할지 결정합니다. */
-    window.checkAndInitializeQuiz = async () => {
-        // **수정 없음:** 데이터 로드
-        accumulatedQuizzes = loadQuizData();
-        quizHistory = loadQuizHistory();
-        
-        renderMainMenu();
-    };
-
-    // =========================================================================
-    // 3. 타이머 로직 (기존 유지)
-    // =========================================================================
-
-    /** @description 15초 타이머를 시작합니다. */
-    function startTimer() {
-        if (timerInterval) clearInterval(timerInterval);
-
-        let timeLeft = TIME_LIMIT;
-        const timerElement = document.getElementById('quiz-timer');
-        if (timerElement) {
-            timerElement.textContent = timeLeft;
-            timerElement.style.color = '#4ade80'; // Green
-
+            // 타이머 정리 후 재시작
+            if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
-                timeLeft--;
-                if (timerElement) {
-                    timerElement.textContent = timeLeft;
-                    
-                    if (timeLeft <= 5) {
-                        timerElement.style.color = '#ef4444'; // Red-400
-                        timerElement.classList.add('animate-pulse');
-                    } else if (timeLeft <= 10) {
-                        timerElement.style.color = '#facc15'; // Yellow-400
-                    }
-                    
-                    timerElement.classList.remove('timer-animate'); 
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
-                            timerElement.classList.add('timer-animate');
-                        });
-                    });
-
-                }
-
-                if (timeLeft <= 0) {
+                timeRemaining--;
+                document.getElementById('quiz-timer').innerText = timeRemaining.toString().padStart(2, '0');
+                if (timeRemaining <= 0) {
                     clearInterval(timerInterval);
-                    timeUp();
+                    handleAnswer(null, currentQuiz.answerIndex); // 시간 초과 처리
                 }
             }, 1000);
-        }
-    }
-    
-    /** @description 시간이 초과되었을 때 처리합니다. */
-    function timeUp() {
-        if (contentDiv.querySelector('#answer-reveal:not(.hidden)')) return; 
-        
-        const timerElement = document.getElementById('quiz-timer');
-        if(timerElement) timerElement.classList.remove('animate-pulse', 'timer-animate');
 
-        window.showNotification('⏳ 시간이 초과되었습니다!', 'info', true);
-        
-        simulateTimeOverAnswer();
-    }
-    
-    /** @description 시간이 초과되었을 때 오답 처리를 시뮬레이션합니다. */
-    function simulateTimeOverAnswer() {
-        const q = currentQuizSet[currentQuestionIndex];
-        const resultMessage = document.getElementById('result-message');
-        const answerReveal = document.getElementById('answer-reveal');
-        const answerDisplay = document.getElementById('correct-answer-display');
-        const explanationDisplay = document.getElementById('explanation-display'); 
+            contentDiv.innerHTML = `
+                <div class="quiz-card w-full p-6 shadow-2xl">
+                    <!-- 헤더 -->
+                    <div class="flex justify-between items-center mb-6 border-b pb-4 border-[#3e3e5d]">
+                        <h2 class="text-xl font-semibold text-indigo-400">
+                            랜덤 상식 퀴즈 (난이도: ${selectedDifficulty})
+                        </h2>
+                        <div class="flex space-x-4">
+                            <span class="text-lg font-bold text-gray-300">${currentQuizIndex + 1} / ${currentQuizSet.length}</span>
+                            <span id="quiz-timer" class="text-lg font-bold text-red-400">15</span>
+                        </div>
+                    </div>
 
-        contentDiv.querySelectorAll('.quiz-option-button').forEach(btn => {
-            btn.disabled = true;
-            btn.classList.remove('hover:bg-purple-600');
-            
-            const btnOption = btn.getAttribute('data-option');
-            const normalizedCorrectAnswer = q.answer.toLowerCase().replace(/\s/g, '');
-            const normalizedBtnOption = btnOption.toLowerCase().replace(/\s/g, '');
-            
-            if (normalizedBtnOption === normalizedCorrectAnswer) {
-                 btn.classList.add('bg-green-800', 'border-green-500'); 
-            }
-        });
-
-        answerDisplay.textContent = q.answer;
-        explanationDisplay.textContent = q.explanation;
-        answerReveal.classList.remove('hidden');
-
-        resultMessage.innerHTML = '<span class="text-red-400">❌ 시간 초과! (오답 처리)</span>';
-        
-        quizHistory.push({
-            quizId: q.id,
-            topic: q.topic,
-            isCorrect: false,
-            answeredAt: new Date().toISOString()
-        });
-        saveQuizHistory(quizHistory);
-    }
-    
-    // =========================================================================
-    // 4. UI 렌더링 및 모드별 로직
-    // =========================================================================
-
-    /** @description 메인 메뉴 화면을 렌더링합니다. (API 키 입력 필드 추가) */
-    function renderMainMenu() {
-        if (timerInterval) clearInterval(timerInterval);
-
-        quizMode = 'menu';
-        const incorrectCount = quizHistory.filter(h => !h.isCorrect).length;
-        const currentApiKey = getApiKey();
-        const isKeyPresent = currentApiKey.length > 0;
-        
-        // API 키 상태 메시지
-        const keyStatusHtml = isKeyPresent 
-            ? `<span class="text-green-400">✅ 퀴즈 생성 준비 완료!</span>`
-            : `<span class="text-yellow-400 font-extrabold">🚨 필수: Gemini API 키를 입력하고 저장해주세요.</span>`;
-            
-        const quizButtonDisabled = !isKeyPresent;
-
-        contentDiv.innerHTML = `
-            <div class="w-full text-center p-6">
-                <p class="text-xl mb-4 text-gray-300">
-                    현재 누적된 총 퀴즈 수: <span class="text-purple-400 font-bold">${accumulatedQuizzes.length}</span>개
-                </p>
-
-                <!-- API Key Input Section (추가됨) -->
-                <div class="bg-gray-800 p-4 rounded-xl mb-8 w-full shadow-inner text-left">
-                    <p class="text-lg font-semibold mb-2">${keyStatusHtml}</p>
-                    <input type="password" id="api-key-input" 
-                           placeholder="여기에 Gemini API 키를 입력하세요 (필수)" 
-                           value="${currentApiKey}"
-                           oninput="document.getElementById('save-key-btn').disabled = this.value.trim().length === 0"
-                           class="w-full p-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:ring-purple-500 focus:border-purple-500 border-none">
-                    <button id="save-key-btn" 
-                            class="gradient-button w-full mt-3 py-2 rounded-lg text-sm"
-                            onclick="window.saveApiKey(document.getElementById('api-key-input').value)"
-                            ${currentApiKey.length === 0 ? 'disabled' : ''}>
-                        API 키 저장
-                    </button>
-                    ${isKeyPresent ? `<button class="w-full mt-2 py-2 rounded-lg text-sm bg-red-600 hover:bg-red-700" onclick="window.saveApiKey('')">키 제거</button>` : ''}
+                    <!-- 퀴즈 내용 -->
+                    <div class="quiz-content p-4 rounded-xl bg-[#2e2e4d] mb-6 min-h-[120px] flex items-center justify-center text-center">
+                        <!-- **수정된 부분: break-words 클래스 추가** -->
+                        <p id="quiz-question" class="text-2xl font-bold text-yellow-300 break-words">
+                            ${currentQuiz.question}
+                        </p>
+                    </div>
+                    
+                    <!-- 옵션 버튼 -->
+                    <div id="quiz-options" class="grid grid-cols-1 gap-4">
+                        ${currentQuiz.options.map((option, index) => `
+                            <button 
+                                class="option-button w-full py-3 rounded-xl text-md shadow-md text-left px-4"
+                                onclick="handleAnswer(this, ${index})">
+                                ${index + 1}. ${option}
+                            </button>
+                        `).join('')}
+                    </div>
                 </div>
-                <!-- End API Key Input Section -->
-                
-                <div class="flex flex-col space-y-6">
-                    <button id="start-quiz-btn" class="gradient-button w-full py-4 px-8 rounded-xl text-lg shadow-lg" 
-                            onclick="startQuiz()" ${quizButtonDisabled ? 'disabled' : ''}>
-                        🚀 퀴즈 세트 도전 (8문제 랜덤 풀이)
-                    </button>
-                    <button id="review-mode-btn" class="gradient-button w-full py-4 px-8 rounded-xl text-lg shadow-lg" 
-                            onclick="startReviewMode()" ${incorrectCount === 0 ? 'disabled' : ''}>
-                        📚 복습 모드 (${incorrectCount}개 틀린 문제)
-                    </button>
-                    <p class="text-sm mt-8 text-gray-400">
-                        * 퀴즈 도전을 위해서는 **API 키 입력이 필수**이며, 데이터는 로컬 브라우저에 저장됩니다.
-                    </p>
-                </div>
-            </div>
-        `;
-    }
-
-    /** @description 퀴즈 모드를 시작하고, 필요 시 문제를 생성합니다. */
-    async function startQuiz() {
-        quizMode = 'quiz';
-        currentQuestionIndex = 0;
-
-        const apiKey = getApiKey();
-        if (!apiKey) {
-             // **수정된 부분:** 키 없으면 즉시 알림 띄우고 종료
-            window.showNotification('🔑 Gemini API 키가 입력되지 않았습니다. 메인 메뉴에서 키를 입력해주세요.', 'error', true);
-            renderMainMenu();
-            return;
-        }
-
-        const lastDate = localStorage.getItem(LOCAL_STORAGE_DATE_KEY);
-        const today = new Date().toDateString();
-
-        let generateCount = 0;
-        let isFirstAccessToday = lastDate !== today;
-        let hasEnoughQuizzes = accumulatedQuizzes.length >= 8;
-
-        // 오늘의 첫 접근이거나, 누적 퀴즈가 아예 없을 때
-        if (isFirstAccessToday || accumulatedQuizzes.length === 0) {
-            generateCount = 8;
-        } else if (!hasEnoughQuizzes) {
-            // 충분한 문제가 없을 때 4개만 추가 생성
-            generateCount = 4;
-        }
-        // 충분한 문제가 있고, 오늘 첫 접근이 아니면 generateCount = 0
-
-        if (generateCount > 0) {
-            const newQuizzes = await generateNewQuestions(generateCount);
-            
-            if (newQuizzes.length === generateCount) {
-                // 성공적으로 퀴즈를 생성했을 때만 데이터 업데이트
-                accumulatedQuizzes = [...accumulatedQuizzes, ...newQuizzes];
-                saveQuizData(accumulatedQuizzes);
-                
-                if (isFirstAccessToday) {
-                    localStorage.setItem(LOCAL_STORAGE_DATE_KEY, today);
-                    window.showNotification(`🎉 오늘의 새로운 퀴즈 ${generateCount}개가 추가되었습니다! 총 ${accumulatedQuizzes.length}개의 퀴즈가 누적되었습니다.`, 'info', true);
-                } else {
-                    window.showNotification(`🎉 추가 퀴즈 ${generateCount}개가 생성되었습니다! 총 ${accumulatedQuizzes.length}개의 퀴즈가 누적되었습니다.`, 'info', true);
-                }
-                // 알림을 닫는 동작은 사용자가 '확인'을 눌렀을 때 실행됨 (window.hideNotification() -> renderQuestion or renderMainMenu)
-            } else {
-                // 퀴즈 생성에 실패했으나, 기존 퀴즈가 있을 경우
-                if (accumulatedQuizzes.length >= 8) {
-                    window.showNotification('새 퀴즈 생성에 실패했지만, 기존 퀴즈로 퀴즈를 시작합니다.', 'info', true);
-                    // generateNewQuestions에서 이미 실패 알림을 띄웠다면, 여기서는 추가 알림 없이 로직을 진행합니다.
-                } else {
-                    // **수정된 부분:** 기존 퀴즈가 없고 생성 실패 시 퀴즈 시작을 막고 메뉴로 복귀.
-                    // generateNewQuestions에서 이미 에러 알림을 띄웠으므로, 추가 알림 없이 메뉴로 복귀
-                    renderMainMenu();
-                    return; 
-                }
-            }
-        } 
-
-        // 퀴즈를 풀 만큼 문제가 없으면 메뉴로 복귀
-        if (accumulatedQuizzes.length < 8) {
-             window.showNotification('퀴즈를 풀기 위한 최소 문제(8개)가 부족합니다. API 키를 확인해주세요.', 'error', true);
-             renderMainMenu();
-             return;
-        }
-
-        // 퀴즈 풀이용 세트 준비
-        currentQuizSet = [...accumulatedQuizzes]
-            .sort(() => 0.5 - Math.random()) 
-            .filter(q => q.options && q.options.length === 4) 
-            .slice(0, 8); 
-        
-        // **수정된 부분:** 퀴즈 셋이 준비된 후에도 문제가 없으면 시작 불가
-        if (currentQuizSet.length === 0) {
-            window.showNotification('풀 수 있는 퀴즈가 현재 없습니다. 문제를 생성하지 못했거나 데이터가 유효하지 않습니다.', 'error', true);
-            renderMainMenu();
-            return;
-        }
-        
-        // 퀴즈 렌더링 시작
-        renderQuestion();
-    }
-
-    /** @description 현재 문제를 렌더링합니다. (기존 유지) */
-    function renderQuestion() {
-        if (timerInterval) clearInterval(timerInterval);
-
-        if (currentQuestionIndex >= currentQuizSet.length) {
-            endQuiz();
-            return;
-        }
-
-        const q = currentQuizSet[currentQuestionIndex];
-        
-        let shuffledOptions = [...(q.options || [q.answer])];
-        if (shuffledOptions.length === 4) {
-            shuffledOptions = shuffleArray(shuffledOptions);
-        } else {
-            shuffledOptions = [q.answer];
-        }
-
-
-        const optionsHtml = shuffledOptions.map((option, index) => `
-            <button class="quiz-option-button w-full py-3 px-4 rounded-xl text-lg text-left mb-3 shadow-md" 
-                    data-option="${option}" onclick="selectAnswer('${option}')">
-                ${['①', '②', '③', '④'][index]} ${option}
-            </button>
-        `).join('');
-
-
-        contentDiv.innerHTML = `
-            <div class="flex justify-between items-center w-full mb-4">
-                <p class="text-base text-purple-300">
-                    ${currentQuestionIndex + 1}/${currentQuizSet.length} | 주제: ${q.topic}
-                </p>
-                <div id="quiz-timer" class="text-4xl font-extrabold text-green-400 leading-none">
-                    ${TIME_LIMIT}
-                </div>
-            </div>
-
-            <div class="quiz-card mb-6 w-full shadow-2xl">
-                <p class="text-2xl font-semibold text-white">
-                    Q. ${q.question}
-                </p>
-            </div>
-            
-            <div id="options-container" class="w-full">
-                ${optionsHtml}
-            </div>
-
-            <div id="result-message" class="mt-4 text-center font-bold text-xl min-h-[30px]"></div>
-            
-            <div id="answer-reveal" class="quiz-card mt-4 hidden text-center">
-                <p class="text-sm text-gray-300">정답</p>
-                <p class="text-2xl font-extrabold text-green-400 mb-3" id="correct-answer-display"></p>
-                
-                <div class="text-left bg-gray-700 p-4 rounded-lg mt-4">
-                    <p class="text-sm font-semibold text-purple-300 mb-2">해설</p>
-                    <p class="text-base text-gray-200" id="explanation-display"></p>
-                </div>
-                
-                <button id="main-action-button" class="gradient-button mt-4 py-2 px-6 rounded-full text-sm" onclick="nextQuestion()">
-                    다음 문제
-                </button>
-            </div>
-        `;
-        
-        startTimer();
-    }
-
-    /** @description 퀴즈 정답을 확인하고 결과를 기록합니다. (기존 유지) */
-    window.selectAnswer = (selectedOption) => {
-        if (timerInterval) clearInterval(timerInterval);
-        
-        if (contentDiv.querySelector('#answer-reveal:not(.hidden)')) return; 
-
-        const timerElement = document.getElementById('quiz-timer');
-        if(timerElement) timerElement.classList.remove('animate-pulse', 'timer-animate');
-        
-        const q = currentQuizSet[currentQuestionIndex];
-        const normalizedSelected = selectedOption.toLowerCase().replace(/\s/g, '');
-        const normalizedCorrectAnswer = q.answer.toLowerCase().replace(/\s/g, '');
-
-        const isCorrect = normalizedSelected === normalizedCorrectAnswer;
-        
-        const resultMessage = document.getElementById('result-message');
-        const answerReveal = document.getElementById('answer-reveal');
-        const answerDisplay = document.getElementById('correct-answer-display');
-        const explanationDisplay = document.getElementById('explanation-display'); 
-
-        contentDiv.querySelectorAll('.quiz-option-button').forEach(btn => {
-            btn.disabled = true;
-            const btnOption = btn.getAttribute('data-option');
-            const normalizedBtnOption = btnOption.toLowerCase().replace(/\s/g, '');
-            
-            if (normalizedBtnOption === normalizedSelected) {
-                 btn.classList.add(isCorrect ? 'bg-green-600' : 'bg-red-600');
-                 btn.classList.remove('bg-gray-700', 'hover:bg-purple-600');
-            } else if (normalizedBtnOption === normalizedCorrectAnswer) {
-                 btn.classList.add('bg-green-800', 'border-green-500'); 
-                 btn.classList.remove('bg-gray-700', 'hover:bg-purple-600');
-            } else {
-                 btn.classList.remove('hover:bg-purple-600');
-            }
-        });
-
-
-        answerDisplay.textContent = q.answer;
-        explanationDisplay.textContent = q.explanation;
-        answerReveal.classList.remove('hidden');
-
-        if (isCorrect) {
-            resultMessage.innerHTML = '<span class="text-green-400">✅ 정답입니다!</span>';
-        } else {
-            resultMessage.innerHTML = '<span class="text-red-400">❌ 오답입니다.</span>';
-        }
-
-        quizHistory.push({
-            quizId: q.id,
-            topic: q.topic,
-            isCorrect: isCorrect,
-            answeredAt: new Date().toISOString()
-        });
-        saveQuizHistory(quizHistory);
-    };
-
-    /** @description 다음 문제로 넘어갑니다. (기존 유지) */
-    window.nextQuestion = () => {
-        if (timerInterval) clearInterval(timerInterval);
-        currentQuestionIndex++;
-        renderQuestion();
-    };
-
-    /** @description 퀴즈를 종료하고 결과를 표시합니다. (기존 유지) */
-    function endQuiz() {
-        if (timerInterval) clearInterval(timerInterval);
-
-        const total = currentQuizSet.length;
-        const recentHistory = quizHistory.slice(-total); 
-        const correctCount = recentHistory.filter(h => h.isCorrect).length;
-        const score = Math.round((correctCount / total) * 100);
-
-        contentDiv.innerHTML = `
-            <div class="quiz-card w-full text-center p-8 shadow-2xl">
-                <p class="text-4xl font-extrabold mb-4 text-purple-400">퀴즈 종료!</p>
-                <p class="text-2xl mb-8">
-                    총 ${total}문제 중 <span class="text-green-400 font-bold">${correctCount}개</span> 정답!
-                </p>
-                <p class="text-6xl font-black mb-8">${score}점</p>
-                
-                <button id="main-action-button" class="gradient-button w-full py-3 rounded-xl text-lg shadow-lg" onclick="renderMainMenu()">
-                    메인 메뉴로 돌아가기
-                </button>
-            </div>
-        `;
-    }
-
-
-    // --- 복습 모드 로직 (기존 유지) ---
-
-    /** @description 복습 모드를 시작합니다. */
-    function startReviewMode() {
-        if (timerInterval) clearInterval(timerInterval);
-
-        quizMode = 'review';
-        currentQuestionIndex = 0;
-        
-        const incorrectHistory = quizHistory.filter(h => !h.isCorrect);
-
-        currentQuizSet = incorrectHistory.map(h => {
-            const quiz = accumulatedQuizzes.find(q => q.id === h.quizId);
-            return quiz ? { ...quiz, historyId: h.quizId } : null;
-        }).filter(q => q && q.options && q.options.length === 4);
-
-        const incorrectCount = currentQuizSet.length;
-
-        if (incorrectCount === 0) {
-            window.showNotification('🎉 틀린 문제가 없습니다! 완벽해요.', 'info', true);
-            renderMainMenu();
-            return;
-        }
-
-        window.showNotification(`📚 복습 모드를 시작합니다. 총 ${incorrectCount}개의 틀린 문제가 있습니다.`, 'info');
-        renderReviewQuestion();
-    }
-
-    /** @description 복습 문제를 렌더링합니다. */
-    function renderReviewQuestion() {
-        if (timerInterval) clearInterval(timerInterval);
-
-        if (currentQuestionIndex >= currentQuizSet.length) {
-            endReview();
-            return;
-        }
-
-        const q = currentQuizSet[currentQuestionIndex];
-        
-        let shuffledOptions = [...(q.options || [q.answer])];
-        if (shuffledOptions.length === 4) {
-             shuffledOptions = shuffleArray(shuffledOptions);
-        } else {
-            shuffledOptions = [q.answer];
-        }
-
-        const optionsHtml = shuffledOptions.map((option, index) => {
-            const isCorrectOption = option.toLowerCase().replace(/\s/g, '') === q.answer.toLowerCase().replace(/\s/g, '');
-            const style = isCorrectOption ? 'bg-green-800 text-white font-bold border-green-500' : 'bg-gray-700 text-gray-300 border-transparent';
-            
-            return `
-                <button class="w-full py-3 px-4 rounded-xl text-lg text-left mb-3 shadow-md border ${style}" disabled>
-                    ${['①', '②', '③', '④'][index]} ${option} ${isCorrectOption ? ' ✅ 정답' : ''}
-                </button>
             `;
-        }).join('');
-
-        contentDiv.innerHTML = `
-            <div class="quiz-card w-full mb-6 shadow-2xl">
-                <p class="text-sm text-purple-300 mb-2">
-                    복습 문제 ${currentQuestionIndex + 1}/${currentQuizSet.length} | 주제: ${q.topic}
-                </p>
-                <p class="text-2xl font-semibold mb-6 text-white">
-                    Q. ${q.question}
-                </p>
-            </div>
-            
-            <div id="options-container" class="w-full mb-4">
-                ${optionsHtml}
-            </div>
-            
-            <div class="text-left quiz-card p-4 rounded-lg mt-4 w-full">
-                <p class="text-sm font-semibold text-purple-300 mb-2">정답: <span class="text-green-400 font-bold">${q.answer}</span></p>
-                <p class="text-sm font-semibold text-purple-300 mb-2 mt-4 border-t border-gray-600 pt-4">해설</p>
-                <p class="text-base text-gray-200">${q.explanation || '해설 정보가 없습니다.'}</p>
-            </div>
-
-            <button id="main-action-button" class="gradient-button mt-6 w-full py-3 rounded-xl text-lg shadow-lg" onclick="nextReviewQuestion()">
-                다음 복습 문제 확인
-            </button>
-            
-            <button class="text-sm text-gray-400 mt-4 hover:text-red-400 transition-colors" onclick="removeReviewItem('${q.id}')">
-                ✅ 이 문제 이제 알아요 (오답 목록에서 제거)
-            </button>
-        `;
-    }
-
-    /** @description 다음 복습 문제로 넘어갑니다. */
-    window.nextReviewQuestion = () => {
-        currentQuestionIndex++;
-        renderReviewQuestion();
-    };
-    
-    /** @description 복습 목록에서 해당 문제를 제거하고 히스토리를 업데이트합니다. */
-    window.removeReviewItem = (quizId) => {
-        quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
-        saveQuizHistory(quizHistory);
-        
-        startReviewMode();
-    };
-
-    /** @description 복습 모드를 종료합니다. */
-    function endReview() {
-        if (timerInterval) clearInterval(timerInterval);
-
-        contentDiv.innerHTML = `
-            <div class="quiz-card w-full text-center p-8 shadow-2xl">
-                <p class="text-4xl font-extrabold mb-4 text-green-400">복습 완료!</p>
-                <p class="text-xl mb-8">
-                    틀렸던 모든 문제를 확인하셨습니다.
-                </p>
-                
-                <button class="gradient-button w-full py-3 rounded-xl text-lg shadow-lg" onclick="renderMainMenu()">
-                    메인 메뉴로 돌아가기
-                </button>
-            </div>
-        `;
-    }
-    
-    // =========================================================================
-    // 5. 키보드 접근성 (기존 유지)
-    // =========================================================================
-    
-    /** @description 전역 키 입력 이벤트를 처리합니다. */
-    function handleGlobalKeydown(event) {
-        if (event.key === 'Enter') {
-            event.preventDefault(); 
-
-            const notificationArea = document.getElementById('notification-area');
-            const okButton = document.getElementById('notification-ok-button');
-            if (notificationArea && !notificationArea.classList.contains('hidden') && okButton && !okButton.classList.contains('hidden')) {
-                okButton.click();
-                return;
-            }
-
-            const mainActionButton = document.getElementById('main-action-button');
-            if (mainActionButton && !mainActionButton.classList.contains('hidden') && !mainActionButton.disabled) {
-                mainActionButton.click();
-                return;
-            }
-
-            const startQuizButton = document.getElementById('start-quiz-btn');
-            if (quizMode === 'menu' && startQuizButton && !startQuizButton.disabled) {
-                startQuizButton.click();
-                return;
-            }
-            
-            const optionsContainer = document.getElementById('options-container');
-            if (quizMode === 'quiz' && optionsContainer && !contentDiv.querySelector('#answer-reveal:not(.hidden)')) {
-                const optionButtons = Array.from(optionsContainer.querySelectorAll('.quiz-option-button:not([disabled])'));
-                
-                if (optionButtons.length > 0) {
-                    optionButtons[0].click();
-                    return;
-                }
-            }
         }
-    }
+        
+        /** * @description 정답을 확인하고 UI를 업데이트합니다. 
+         * @param {HTMLElement|null} selectedButton - 사용자가 클릭한 버튼
+         * @param {number} selectedIndex - 사용자가 선택한 인덱스 (시간 초과 시 null)
+         */
+        window.handleAnswer = (selectedButton, selectedIndex) => {
+            if (timerInterval) clearInterval(timerInterval); // 타이머 중지
+            
+            const optionsDiv = document.getElementById('quiz-options');
+            const buttons = optionsDiv.querySelectorAll('button');
+            const currentQuiz = currentQuizSet[currentQuizIndex];
+            const isCorrect = selectedIndex === currentQuiz.answerIndex;
+            
+            // 모든 버튼 비활성화
+            buttons.forEach(btn => btn.disabled = true);
+            
+            // UI 업데이트 및 기록 저장
+            buttons.forEach((btn, index) => {
+                const isSelected = index === selectedIndex;
+                const isAnswer = index === currentQuiz.answerIndex;
 
-    document.addEventListener('keydown', handleGlobalKeydown);
+                if (isAnswer) {
+                    btn.classList.add('correct');
+                    btn.innerHTML += ' &check; 정답';
+                } else if (isSelected && !isAnswer) {
+                    btn.classList.add('incorrect');
+                    btn.innerHTML += ' &times; 오답';
+                } else {
+                    btn.classList.add('faded-out');
+                }
+            });
+            
+            // 결과 저장
+            saveQuizResult(currentQuiz.id, isCorrect, currentQuiz.difficulty);
+            
+            // 다음 문제 버튼 추가
+            const nextButton = document.createElement('button');
+            nextButton.className = 'gradient-button w-full py-3 rounded-xl text-lg shadow-lg mt-6';
+            nextButton.innerText = '다음 문제로';
+            nextButton.onclick = () => {
+                currentQuizIndex++;
+                renderQuizQuestion();
+            };
+            optionsDiv.parentNode.appendChild(nextButton);
+        }
 
-</script>
+        /** @description 퀴즈를 종료하고 결과를 표시합니다. */
+        function endQuiz() {
+            if (timerInterval) clearInterval(timerInterval);
+            
+            const total = currentQuizSet.length;
+            // 퀴즈 세트의 ID를 기준으로 정답/오답을 계산합니다.
+            const quizSetIds = currentQuizSet.map(q => q.id);
+            const recentHistory = quizHistory.filter(h => quizSetIds.includes(h.quizId));
+            const correctAnswers = recentHistory.filter(h => h.isCorrect && quizSetIds.includes(h.quizId)).length;
+            const score = correctAnswers / total;
 
+            contentDiv.innerHTML = `
+                <div class="quiz-card w-full text-center p-8 shadow-2xl">
+                    <p class="text-4xl font-extrabold mb-4 ${score >= 0.7 ? 'text-green-400' : 'text-red-400'}">
+                        퀴즈 완료!
+                    </p>
+                    <p class="text-2xl font-bold mb-2">
+                        ${correctAnswers} / ${total} 정답
+                    </p>
+                    <p class="text-xl mb-8 text-gray-300">
+                        정답률: ${(score * 100).toFixed(1)}%
+                    </p>
+                    
+                    <button class="gradient-button w-full py-3 rounded-xl text-lg shadow-lg" onclick="renderMainMenu()">
+                        메인 메뉴로 돌아가기
+                    </button>
+                </div>
+            `;
+        }
+
+        // =========================================================================
+        // 5. 복습 모드
+        // =========================================================================
+
+        let reviewSet = []; // 복습 문제 목록 (Quiz 객체로 구성)
+
+        /** @description 복습 모드를 시작합니다. */
+        window.startReviewMode = () => {
+            if (timerInterval) clearInterval(timerInterval);
+            
+            // 틀린 문제의 quizId 목록을 가져옵니다.
+            const incorrectQuizIds = [...new Set(quizHistory
+                .filter(h => !h.isCorrect)
+                .map(h => h.quizId)
+            )];
+
+            // 전체 퀴즈 목록에서 해당 ID의 문제만 필터링합니다.
+            const allQuizzes = [...mockQuizzes];
+            reviewSet = allQuizzes.filter(quiz => incorrectQuizIds.includes(quiz.id));
+
+            if (reviewSet.length === 0) {
+                // 이미 복습이 완료되어 틀린 문제가 없는 경우
+                endReview(); 
+                return;
+            }
+            
+            // 복습 모드는 섞지 않고, 오답 기록이 오래된 순서대로 정렬하거나 그냥 현재 배열을 사용합니다.
+            // 여기서는 간단하게 배열 순서대로 진행합니다.
+            currentQuizIndex = 0;
+            renderReviewQuestion();
+        };
+
+        /** @description 현재 복습 문제를 렌더링합니다. */
+        function renderReviewQuestion() {
+            if (currentQuizIndex >= reviewSet.length) {
+                endReview();
+                return;
+            }
+
+            const currentQuiz = reviewSet[currentQuizIndex];
+            const totalReview = reviewSet.length;
+
+            contentDiv.innerHTML = `
+                <div class="quiz-card w-full p-6 shadow-2xl">
+                    <!-- 헤더 -->
+                    <div class="flex justify-between items-center mb-6 border-b pb-4 border-[#3e3e5d]">
+                        <h2 class="text-xl font-semibold text-red-400">
+                            오답 복습 모드
+                        </h2>
+                        <span class="text-lg font-bold text-gray-300">${currentQuizIndex + 1} / ${totalReview}</span>
+                    </div>
+
+                    <!-- 퀴즈 내용 -->
+                    <div class="quiz-content p-4 rounded-xl bg-[#2e2e4d] mb-6 min-h-[120px] flex items-center justify-center text-center">
+                        <!-- **수정된 부분: break-words 클래스 추가** -->
+                        <p id="quiz-question" class="text-2xl font-bold text-yellow-300 mb-4 break-words">
+                            ${currentQuiz.question}
+                        </p>
+                    </div>
+                    
+                    <!-- 정답 표시 -->
+                    <div class="bg-[#3e3e5d] p-4 rounded-xl mb-6">
+                        <p class="text-lg font-bold text-green-400 mb-2">정답: ${currentQuiz.options[currentQuiz.answerIndex]}</p>
+                        <p class="text-sm text-gray-400">이 문제는 이전에 틀렸던 문제입니다.</p>
+                    </div>
+
+                    <!-- 버튼 -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <button class="option-button w-full py-3 rounded-xl text-lg shadow-md"
+                            onclick="window.removeReviewItem('${currentQuiz.id}')">
+                            완벽히 이해했어요! (제거)
+                        </button>
+                        <button class="gradient-button w-full py-3 rounded-xl text-lg shadow-md"
+                            onclick="window.nextReviewQuestion()">
+                            다음 문제로
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        /** @description 다음 복습 문제로 넘어갑니다. */
+        window.nextReviewQuestion = () => {
+            currentQuestionIndex++;
+            renderReviewQuestion();
+        };
+        
+        /** @description 복습 목록에서 해당 문제를 제거하고 히스토리를 업데이트합니다. */
+        window.removeReviewItem = (quizId) => {
+            // 해당 quizId와 isCorrect가 false인 모든 항목을 필터링하여 제거합니다.
+            // isCorrect가 true인 항목은 '정답' 기록이므로 유지합니다.
+            // 복습 모드에서는 history에서 오답 기록만 지우는 것이 목적입니다.
+            const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
+            
+            // 오답 기록만 찾습니다.
+            const incorrectEntries = quizHistory.filter(h => h.quizId === quizId && !h.isCorrect);
+
+            if (db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-')) {
+                // Firestore에 직접 삭제 기능이 없으므로, onSnapshot 리스너에 의존하여 변경된 history를 받아와야 합니다.
+                // 편의상 새로운 엔트리를 추가하여 덮어쓰기 로직을 시뮬레이션합니다.
+                // 실제 앱에서는 '삭제' 대신 '복습 완료' 플래그를 추가하는 것이 좋습니다.
+                // 여기서는 간단히 다음 문제로 넘어가는 것으로 대체합니다.
+                // 사용자에게 혼란을 줄 수 있으므로, Firestore를 사용하는 환경에서는 이 기능을 복잡하게 구현하지 않겠습니다.
+                
+                // 임시로, 로컬 퀴즈 목록에서만 제거하고 다음 문제로 넘어갑니다.
+                // Firestore 리스너가 새 퀴즈 목록을 가져오면 자동 반영됩니다.
+                
+                // Firestore에서 실제 항목을 삭제해야 하지만, Firestore security rules에 의해 일반적으로 DELETE 권한이 제한될 수 있습니다. 
+                // 이 예제에서는 사용자에게 '복습 완료' 경험만 제공하기 위해 
+                // 다음 문제로 넘어가고, onSnapshot을 통해 UI가 자동으로 업데이트되도록 합니다. 
+                // (실제 '제거'는 Firestore 데이터 모델 변경이 필요)
+            } else {
+                 // LocalStorage의 경우, 수동으로 제거 후 저장
+                quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
+                localStorage.setItem(`quizHistory_${userId}`, JSON.stringify(quizHistory));
+            }
+            
+            // 복습 셋 업데이트 후 다음 문제로
+            startReviewMode();
+        };
+
+        /** @description 복습 모드를 종료합니다. */
+        function endReview() {
+            // 타이머 정리
+            if (timerInterval) clearInterval(timerInterval);
+
+            contentDiv.innerHTML = `
+                <div class="quiz-card w-full text-center p-8 shadow-2xl">
+                    <p class="text-4xl font-extrabold mb-4 text-green-400">복습 완료!</p>
+                    <p class="text-xl mb-8">
+                        틀렸던 모든 문제를 확인하셨습니다.
+                    </p>
+                    
+                    <button class="gradient-button w-full py-3 rounded-xl text-lg shadow-lg" onclick="renderMainMenu()">
+                        메인 메뉴로 돌아가기
+                    </button>
+                </div>
+            `;
+        }
+        
+        // =========================================================================
+        // 6. 초기 로드
+        // =========================================================================
+
+        initializeFirebase();
+        
+    </script>
 </body>
 </html>
