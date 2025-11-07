@@ -135,7 +135,13 @@
         async function initializeFirebase() {
             // Vercel 환경에서는 firebaseConfig가 없을 수 있으므로, 예외 처리
             if (!firebaseConfig || !firebaseConfig.projectId) {
-                console.warn("Firebase config is missing or invalid. Firebase features (multi-user sync) will be disabled.");
+                console.warn("Firebase config is missing or invalid. Firebase features (multi-user sync) will be disabled. Falling back to LocalStorage.");
+                
+                // Canvas 환경이었는데 실패한 경우 (여기서는 알림을 끄고, 콘솔 경고만 남깁니다.)
+                // if (typeof __firebase_config !== 'undefined') {
+                //     window.showNotification('⚠️ 경고: Firebase 초기화에 실패했습니다. 데이터는 브라우저에만 저장됩니다.', 'info', true);
+                // }
+                
                 window.checkAndInitializeQuiz();
                 return;
             }
@@ -204,7 +210,7 @@
     const LOCAL_STORAGE_QUIZ_KEY = 'accumulated_quiz_data';
     const LOCAL_STORAGE_HISTORY_KEY = 'quiz_history';
     const LOCAL_STORAGE_DATE_KEY = 'last_generated_date';
-    const LOCAL_STORAGE_API_KEY = 'gemini_api_key'; // **추가됨**
+    const LOCAL_STORAGE_API_KEY = 'gemini_api_key'; 
     const contentDiv = document.getElementById('content');
     
     // 타이머 관련 전역 변수
@@ -214,8 +220,9 @@
     let accumulatedQuizzes = [];
     let quizHistory = [];
     let currentQuizSet = [];
-    let currentQuestionIndex = 0;
     let quizMode = 'menu'; 
+    let currentQuestionIndex = 0;
+
 
     /** @description UUID를 생성합니다. (랜덤 ID) */
     function generateUUID() {
@@ -357,7 +364,7 @@
         
         const userQuery = `새로운 4지선다형 퀴즈 ${count}개를 ${selectedTopics.join(', ')} 주제로 생성해 주세요. 각 문제에는 고유 ID, 주제, 질문, 정답, 그리고 정답을 포함한 4개의 보기(options) 배열, 그리고 정답과 오답에 대한 명확한 해설이 포함되어야 합니다.`;
         
-        // **수정된 부분: API URL에 동적으로 키 주입**
+        // API URL에 동적으로 키 주입
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
         
         const responseSchema = {
@@ -465,15 +472,9 @@
         accumulatedQuizzes = loadQuizData();
         quizHistory = loadQuizHistory();
         
-        const lastDate = localStorage.getItem(LOCAL_STORAGE_DATE_KEY);
-        const today = new Date().toDateString();
+        // **수정된 부분:** Firebase 실패 시 발생하는 중복 알림을 제거합니다. 
+        // Firebase 관련 경고는 initializeFirebase() 함수 내에서 콘솔 로그로 충분히 처리됩니다.
         
-        // Firebase 관련 경고 (외부 환경의 경우)
-        if (!window.db) {
-            console.warn("Firebase is not initialized. Data will be saved locally only.");
-            window.showNotification('⚠️ 경고: Firebase 초기화에 실패했습니다. 데이터는 브라우저에만 저장됩니다.', 'info', true);
-        }
-
         renderMainMenu();
     };
 
@@ -569,7 +570,7 @@
     }
     
     // =========================================================================
-    // 4. UI 렌더링 및 모드별 로직 (키 입력 UI 추가)
+    // 4. UI 렌더링 및 모드별 로직 (키 입력 UI 유지)
     // =========================================================================
 
     /** @description 메인 메뉴 화면을 렌더링합니다. (API 키 입력 필드 추가) */
