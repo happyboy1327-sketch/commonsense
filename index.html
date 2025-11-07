@@ -7,7 +7,7 @@
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Inter Font (Tailwind default) -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght=100..900&display=swap" rel="stylesheet">
     <style>
         /* 커스텀 스타일 및 폰트 설정 */
         body {
@@ -165,6 +165,12 @@
         // =========================================================================
         // 3. Firebase Firestore 및 인증 (Auth)
         // =========================================================================
+
+        /** @description LocalStorage에 퀴즈 히스토리를 저장합니다. (비인가/익명 사용자용) */
+        function saveQuizHistory(history) {
+            localStorage.setItem(`quizHistory_${userId}`, JSON.stringify(history));
+            console.log("Quiz History saved to LocalStorage:", history.length);
+        }
         
         /** @description Firebase 인증 및 Firestore를 초기화하고 사용자 ID를 가져옵니다. */
         async function initializeFirebase() {
@@ -208,13 +214,14 @@
             });
         }
         
-        /** @description Firestore에서 퀴즈 히스토리 변경 사항을 실시간으로 수신합니다. */
+        /** @description Firestore에서 퀴즈 히스토리 변경 사항을 실시간으로 수신하거나 LocalStorage에서 로드합니다. */
         function startListeningToHistory() {
             if (!db || userId === 'loading' || userId.startsWith('error-') || userId.startsWith('anon-') || userId.startsWith('anonymous-')) {
-                 // 파이어베이스가 없거나, 익명 또는 에러 유저인 경우 리스너 시작하지 않음 (mock data 사용)
-                console.warn("Firestore history listening skipped: Anonymous or Error User.");
-                // 모의 퀴즈 히스토리 사용 (필요하다면 로컬 스토리지 대체 가능)
+                 // 파이어베이스가 없거나, 익명 또는 에러 유저인 경우 LocalStorage에서 로드
+                console.warn("Firestore history listening skipped. Loading from LocalStorage.");
                 quizHistory = JSON.parse(localStorage.getItem(`quizHistory_${userId}`)) || [];
+                // 로드 후 즉시 정렬 (가장 최근 항목이 앞으로 오도록)
+                quizHistory.sort((a, b) => b.timestamp - a.timestamp);
                 return; 
             }
 
@@ -262,8 +269,7 @@
                 // LocalStorage에 저장 (익명 또는 에러 사용자)
                 quizHistory.unshift(newEntry); // 최신 항목을 앞에 추가
                 quizHistory = quizHistory.slice(0, 50); // 최대 50개 항목 유지
-                localStorage.setItem(`quizHistory_${userId}`, JSON.stringify(quizHistory));
-                console.log("Saved to LocalStorage (Anonymous user).");
+                saveQuizHistory(quizHistory); // **수정: LocalStorage에 명시적으로 저장**
             }
         }
 
@@ -565,42 +571,30 @@
 
         /** @description 다음 복습 문제로 넘어갑니다. */
         window.nextReviewQuestion = () => {
-            currentQuestionIndex++;
+            // **수정: 변수명 오타 수정**
+            currentQuizIndex++;
             renderReviewQuestion();
         };
         
         /** @description 복습 목록에서 해당 문제를 제거하고 히스토리를 업데이트합니다. */
         window.removeReviewItem = (quizId) => {
-            // 해당 quizId와 isCorrect가 false인 모든 항목을 필터링하여 제거합니다.
-            // isCorrect가 true인 항목은 '정답' 기록이므로 유지합니다.
-            // 복습 모드에서는 history에서 오답 기록만 지우는 것이 목적입니다.
-            const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
-            
-            // 오답 기록만 찾습니다.
-            const incorrectEntries = quizHistory.filter(h => h.quizId === quizId && !h.isCorrect);
+            // 1. 로컬 히스토리에서 해당 문제의 오답 기록만 제거
+            quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
 
             if (db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-')) {
-                // Firestore에 직접 삭제 기능이 없으므로, onSnapshot 리스너에 의존하여 변경된 history를 받아와야 합니다.
-                // 편의상 새로운 엔트리를 추가하여 덮어쓰기 로직을 시뮬레이션합니다.
-                // 실제 앱에서는 '삭제' 대신 '복습 완료' 플래그를 추가하는 것이 좋습니다.
-                // 여기서는 간단히 다음 문제로 넘어가는 것으로 대체합니다.
-                // 사용자에게 혼란을 줄 수 있으므로, Firestore를 사용하는 환경에서는 이 기능을 복잡하게 구현하지 않겠습니다.
-                
-                // 임시로, 로컬 퀴즈 목록에서만 제거하고 다음 문제로 넘어갑니다.
-                // Firestore 리스너가 새 퀴즈 목록을 가져오면 자동 반영됩니다.
-                
-                // Firestore에서 실제 항목을 삭제해야 하지만, Firestore security rules에 의해 일반적으로 DELETE 권한이 제한될 수 있습니다. 
-                // 이 예제에서는 사용자에게 '복습 완료' 경험만 제공하기 위해 
-                // 다음 문제로 넘어가고, onSnapshot을 통해 UI가 자동으로 업데이트되도록 합니다. 
-                // (실제 '제거'는 Firestore 데이터 모델 변경이 필요)
+                // Firestore 환경에서는 onSnapshot이 변경을 감지하고 자동으로 UI를 업데이트하지만,
+                // 실제 Firestore 삭제 기능은 구현하지 않았으므로 여기서는 로컬 상태만 변경합니다.
             } else {
-                 // LocalStorage의 경우, 수동으로 제거 후 저장
-                quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
-                localStorage.setItem(`quizHistory_${userId}`, JSON.stringify(quizHistory));
+                 // LocalStorage의 경우, 수동으로 제거 후 저장 **(핵심 수정)**
+                saveQuizHistory(quizHistory);
             }
             
-            // 복습 셋 업데이트 후 다음 문제로
-            startReviewMode();
+            // 2. 현재 복습 셋에서 해당 문제 제거
+            reviewSet = reviewSet.filter(q => q.id !== quizId);
+            
+            // 3. 현재 인덱스에서 다음 문제 렌더링
+            // 제거된 항목 때문에 인덱스를 조정할 필요 없이, 다음 항목을 현재 인덱스로 렌더링
+            renderReviewQuestion();
         };
 
         /** @description 복습 모드를 종료합니다. */
