@@ -137,10 +137,7 @@
             if (!firebaseConfig || !firebaseConfig.projectId) {
                 console.warn("Firebase config is missing or invalid. Firebase features (multi-user sync) will be disabled. Falling back to LocalStorage.");
                 
-                // Canvas 환경이었는데 실패한 경우 (여기서는 알림을 끄고, 콘솔 경고만 남깁니다.)
-                // if (typeof __firebase_config !== 'undefined') {
-                //     window.showNotification('⚠️ 경고: Firebase 초기화에 실패했습니다. 데이터는 브라우저에만 저장됩니다.', 'info', true);
-                // }
+                // Canvas 환경이었는데 실패한 경우에도 알림은 띄우지 않고 콘솔 경고만 남깁니다.
                 
                 window.checkAndInitializeQuiz();
                 return;
@@ -329,11 +326,7 @@
         const trimmedKey = key.trim();
         localStorage.setItem(LOCAL_STORAGE_API_KEY, trimmedKey);
         renderMainMenu(); // 키 저장 후 메인 메뉴 새로고침
-        if (trimmedKey) {
-            window.showNotification('🔑 API 키가 저장되었습니다. 이제 퀴즈를 생성할 수 있습니다.', 'info', true);
-        } else {
-             window.showNotification('🔑 API 키가 제거되었습니다. 퀴즈 생성 버튼이 비활성화됩니다.', 'info', true);
-        }
+        // 🔑 API 키 저장/제거 시 알림 메시지 대신 UI 업데이트에 의존
     }
 
     // =========================================================================
@@ -347,8 +340,10 @@
      */
     async function generateNewQuestions(count) {
         const apiKey = getApiKey();
+        // **수정된 부분:** 키 확인은 startQuiz에서 이미 했지만, 방어 코드 추가
         if (!apiKey) {
-            window.showNotification('🔑 Gemini API 키가 입력되지 않았습니다. 메인 메뉴에서 키를 입력해주세요.', 'error', true);
+            // 이 경로는 startQuiz에서 이미 차단되었지만, 안전을 위해 추가
+            console.error("API Key missing during generation attempt.");
             return [];
         }
 
@@ -456,7 +451,13 @@
                 console.error(`Attempt ${i + 1} failed:`, error);
                 
                 if (i === maxRetries - 1) {
-                    window.showNotification(`퀴즈 생성에 최종 실패했습니다. 오류: ${error.message}`, 'error', true);
+                    // **수정된 부분:** API 키 오류와 일반 API 실패 오류 분리 처리
+                    let finalErrorMessage = `퀴즈 생성에 최종 실패했습니다. 오류: ${error.message}`;
+                    if (error.message.includes('400') || error.message.includes('API key')) {
+                        finalErrorMessage = '🔑 API 키가 유효하지 않거나 할당량을 초과했습니다. 키를 확인하거나 교체해주세요.';
+                    }
+                    
+                    window.showNotification(finalErrorMessage, 'error', true);
                     return [];
                 }
                 
@@ -469,11 +470,9 @@
 
     /** @description 로컬 데이터와 현재 날짜를 확인하여 새로운 퀴즈를 생성할지 결정합니다. */
     window.checkAndInitializeQuiz = async () => {
+        // **수정 없음:** 데이터 로드
         accumulatedQuizzes = loadQuizData();
         quizHistory = loadQuizHistory();
-        
-        // **수정된 부분:** Firebase 실패 시 발생하는 중복 알림을 제거합니다. 
-        // Firebase 관련 경고는 initializeFirebase() 함수 내에서 콘솔 로그로 충분히 처리됩니다.
         
         renderMainMenu();
     };
@@ -570,7 +569,7 @@
     }
     
     // =========================================================================
-    // 4. UI 렌더링 및 모드별 로직 (키 입력 UI 유지)
+    // 4. UI 렌더링 및 모드별 로직
     // =========================================================================
 
     /** @description 메인 메뉴 화면을 렌더링합니다. (API 키 입력 필드 추가) */
@@ -582,10 +581,10 @@
         const currentApiKey = getApiKey();
         const isKeyPresent = currentApiKey.length > 0;
         
-        // 키 상태에 따른 설명 및 버튼 활성화/비활성화
+        // API 키 상태 메시지
         const keyStatusHtml = isKeyPresent 
-            ? `<span class="text-green-400">✅ API 키가 설정되었습니다.</span>`
-            : `<span class="text-red-400">❌ API 키가 필요합니다! 아래에 입력해주세요.</span>`;
+            ? `<span class="text-green-400">✅ 퀴즈 생성 준비 완료!</span>`
+            : `<span class="text-yellow-400 font-extrabold">🚨 필수: Gemini API 키를 입력하고 저장해주세요.</span>`;
             
         const quizButtonDisabled = !isKeyPresent;
 
@@ -623,22 +622,22 @@
                         📚 복습 모드 (${incorrectCount}개 틀린 문제)
                     </button>
                     <p class="text-sm mt-8 text-gray-400">
-                        * 퀴즈 도전을 위해서는 **API 키 입력이 필수**입니다.
+                        * 퀴즈 도전을 위해서는 **API 키 입력이 필수**이며, 데이터는 로컬 브라우저에 저장됩니다.
                     </p>
                 </div>
             </div>
         `;
     }
 
-    // --- 퀴즈 모드 로직 (API 키를 getApiKey()로 대체) ---
-
     /** @description 퀴즈 모드를 시작하고, 필요 시 문제를 생성합니다. */
     async function startQuiz() {
         quizMode = 'quiz';
         currentQuestionIndex = 0;
-        
-        // API 키가 없으면 실행 중단
-        if (!getApiKey()) {
+
+        const apiKey = getApiKey();
+        if (!apiKey) {
+             // **수정된 부분:** 키 없으면 즉시 알림 띄우고 종료
+            window.showNotification('🔑 Gemini API 키가 입력되지 않았습니다. 메인 메뉴에서 키를 입력해주세요.', 'error', true);
             renderMainMenu();
             return;
         }
@@ -648,19 +647,22 @@
 
         let generateCount = 0;
         let isFirstAccessToday = lastDate !== today;
+        let hasEnoughQuizzes = accumulatedQuizzes.length >= 8;
 
-        if (isFirstAccessToday) {
+        // 오늘의 첫 접근이거나, 누적 퀴즈가 아예 없을 때
+        if (isFirstAccessToday || accumulatedQuizzes.length === 0) {
             generateCount = 8;
-        } else if (accumulatedQuizzes.length === 0) {
-            generateCount = 8;
-        } else {
+        } else if (!hasEnoughQuizzes) {
+            // 충분한 문제가 없을 때 4개만 추가 생성
             generateCount = 4;
         }
+        // 충분한 문제가 있고, 오늘 첫 접근이 아니면 generateCount = 0
 
         if (generateCount > 0) {
             const newQuizzes = await generateNewQuestions(generateCount);
             
             if (newQuizzes.length === generateCount) {
+                // 성공적으로 퀴즈를 생성했을 때만 데이터 업데이트
                 accumulatedQuizzes = [...accumulatedQuizzes, ...newQuizzes];
                 saveQuizData(accumulatedQuizzes);
                 
@@ -670,31 +672,42 @@
                 } else {
                     window.showNotification(`🎉 추가 퀴즈 ${generateCount}개가 생성되었습니다! 총 ${accumulatedQuizzes.length}개의 퀴즈가 누적되었습니다.`, 'info', true);
                 }
-            } else if (accumulatedQuizzes.length === 0) {
-                // API 호출 실패 AND 기존 퀴즈 없음
-                renderMainMenu();
-                return;
+                // 알림을 닫는 동작은 사용자가 '확인'을 눌렀을 때 실행됨 (window.hideNotification() -> renderQuestion or renderMainMenu)
             } else {
-                // API 호출 실패했지만 기존 퀴즈 있음
-                window.showNotification('새 퀴즈 생성에 실패했습니다. 기존 퀴즈로 퀴즈를 시작합니다.', 'info', true);
+                // 퀴즈 생성에 실패했으나, 기존 퀴즈가 있을 경우
+                if (accumulatedQuizzes.length >= 8) {
+                    window.showNotification('새 퀴즈 생성에 실패했지만, 기존 퀴즈로 퀴즈를 시작합니다.', 'info', true);
+                    // generateNewQuestions에서 이미 실패 알림을 띄웠다면, 여기서는 추가 알림 없이 로직을 진행합니다.
+                } else {
+                    // **수정된 부분:** 기존 퀴즈가 없고 생성 실패 시 퀴즈 시작을 막고 메뉴로 복귀.
+                    // generateNewQuestions에서 이미 에러 알림을 띄웠으므로, 추가 알림 없이 메뉴로 복귀
+                    renderMainMenu();
+                    return; 
+                }
             }
-        } else if (accumulatedQuizzes.length === 0) {
-             window.showNotification('풀 수 있는 퀴즈가 현재 없습니다. 메인 메뉴로 돌아갑니다.', 'error', true);
+        } 
+
+        // 퀴즈를 풀 만큼 문제가 없으면 메뉴로 복귀
+        if (accumulatedQuizzes.length < 8) {
+             window.showNotification('퀴즈를 풀기 위한 최소 문제(8개)가 부족합니다. API 키를 확인해주세요.', 'error', true);
              renderMainMenu();
              return;
         }
 
+        // 퀴즈 풀이용 세트 준비
         currentQuizSet = [...accumulatedQuizzes]
             .sort(() => 0.5 - Math.random()) 
             .filter(q => q.options && q.options.length === 4) 
             .slice(0, 8); 
         
+        // **수정된 부분:** 퀴즈 셋이 준비된 후에도 문제가 없으면 시작 불가
         if (currentQuizSet.length === 0) {
-            window.showNotification('풀 수 있는 퀴즈가 현재 없습니다. 메인 메뉴로 돌아갑니다.', 'error', true);
+            window.showNotification('풀 수 있는 퀴즈가 현재 없습니다. 문제를 생성하지 못했거나 데이터가 유효하지 않습니다.', 'error', true);
             renderMainMenu();
             return;
         }
         
+        // 퀴즈 렌더링 시작
         renderQuestion();
     }
 
