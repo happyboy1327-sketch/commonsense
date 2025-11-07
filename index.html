@@ -98,7 +98,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, limit, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // where, getDocs, deleteDoc 함수 추가: 복습 목록 영구 삭제를 위해 필요
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, where, getDocs, deleteDoc, limit, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // Firestore 디버그 로깅 활성화
@@ -121,13 +122,14 @@
         // 퀴즈 관련 상태
         let allQuizzes = [];          // mockQuizzes를 Map 형태로 저장 (검색 효율화)
         let currentQuizSet = [];      // 현재 퀴즈 세션에 사용할 퀴즈 (10개)
+        let reviewSet = [];           // **추가: 복습 모드에서 사용할 퀴즈 세트 (글로벌 초기화)**
         let currentQuizIndex = 0;     // 현재 풀고 있는 퀴즈의 인덱스
         let quizHistory = [];         // 사용자가 푼 모든 퀴즈 기록 (Firestore 동기화)
         let timerInterval = null;     // 퀴즈 타이머
         let timeRemaining = 15;       // 문제당 시간 (초)
         let selectedDifficulty = 'Easy'; // 현재 선택된 난이도
         
-        /** * @typedef {Object} QuizState
+        /** @typedef {Object} QuizState
          * @property {string} lastAccessDate - 마지막 접속 날짜 (YYYY-MM-DD)
          * @property {{Easy: string[], Normal: string[], Hard: string[]}} pools - 난이도별 현재 사용자에게 공개된 퀴즈 ID 목록
          */
@@ -138,7 +140,7 @@
         };
 
         // =========================================================================
-        // 2. 데이터 구조 및 모의 데이터
+        // 2. 데이터 구조 및 모의 데이터 (변경 없음)
         // =========================================================================
 
         /** @typedef {Object} Quiz
@@ -174,6 +176,7 @@
             { id: 'n6', question: '파리 기후변화협정이 채택된 연도는?', options: ['2012년', '2015년', '2018년', '2021년'], answerIndex: 1, difficulty: 'Normal', explanation: '파리 협정은 2015년 12월 프랑스 파리에서 열린 제21차 유엔 기후변화협약 당사국총회에서 채택되었습니다.' },
             { id: 'n7', question: '미국의 초대 대통령은 누구일까요?', options: ['토머스 제퍼슨', '존 애덤스', '조지 워싱턴', '에이브러햄 링컨'], answerIndex: 2, difficulty: 'Normal', explanation: '조지 워싱턴은 미국의 초대 대통령입니다.' },
             { id: 'n8', question: '지구 자기장의 역전 주기는 평균적으로 얼마일까요?', options: ['수백 년', '수만 년', '수십만 년', '수백만 년'], answerIndex: 2, difficulty: 'Normal', explanation: '지구 자기장의 역전 주기는 일정하지 않지만, 평균적으로 수십만 년에 한 번 발생합니다.' },
+            // **[수정됨]** '블루칩'을 감싸는 내부 따옴표를 큰따옴표(")로 변경하여 외부 따옴표(')와의 충돌을 방지했습니다.
             { id: 'n9', question: '주식 시장에서 "블루칩"이란 무엇을 의미할까요?', options: ['갓 상장된 주식', '가격 변동성이 큰 주식', '대형 우량주', 'IT 관련 기술주'], answerIndex: 2, difficulty: 'Normal', explanation: '블루칩(Blue Chip)은 안정적이고 재무 상태가 건전한 대형 우량 기업의 주식을 의미합니다.' },
             { id: 'n10', question: '독일의 통일을 상징하는 문은 무엇일까요?', options: ['개선문', '브란덴부르크 문', '콜로세움', '베를린 장벽'], answerIndex: 1, difficulty: 'Normal', explanation: '브란덴부르크 문은 베를린에 위치하며 독일 분단과 통일의 상징입니다.' },
             { id: 'n11', question: '러시아의 수도는?', options: ['상트페테르부르크', '키이우', '모스크바', '민스크'], answerIndex: 2, difficulty: 'Normal', explanation: '러시아의 수도는 모스크바입니다.' },
@@ -217,6 +220,11 @@
             return doc(db, docPath);
         }
 
+        /** @description 퀴즈 히스토리 컬렉션 경로를 가져옵니다. (신규 추가) */
+        function getHistoryCollectionRef() {
+            return collection(db, `/artifacts/${appId}/users/${userId}/quizHistory`);
+        }
+
         /** @description LocalStorage에 퀴즈 히스토리를 저장합니다. (비인가/익명 사용자용) */
         function saveQuizHistory(history) {
             localStorage.setItem(`quizHistory_${userId}`, JSON.stringify(history));
@@ -242,6 +250,7 @@
                 // Firestore에 저장
                 const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
                 try {
+                    // 고유 문서 ID 생성
                     const docId = `${difficulty}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
                     await setDoc(doc(db, historyCollectionPath, docId), newEntry);
                 } catch (error) {
@@ -364,7 +373,8 @@
             }
 
             const historyCollectionPath = `/artifacts/${appId}/users/${userId}/quizHistory`;
-            const q = query(collection(db, historyCollectionPath), limit(50), orderBy('timestamp', 'desc'));
+            // 최대 50개의 최근 기록만 동기화하여 부하를 줄임
+            const q = query(collection(db, historyCollectionPath), limit(50), orderBy('timestamp', 'desc')); 
 
             onSnapshot(q, (snapshot) => {
                 const history = [];
@@ -383,7 +393,7 @@
         }
         
         // =========================================================================
-        // 5. 퀴즈 풀 관리 로직 (신규 구현)
+        // 5. 퀴즈 풀 관리 로직 (변경 없음)
         // =========================================================================
         
         /** @description 퀴즈 풀에 신규 문제를 추가하고 상태를 업데이트합니다. */
@@ -459,7 +469,7 @@
 
 
         // =========================================================================
-        // 6. UI 렌더링 및 로직
+        // 6. UI 렌더링 및 로직 (변경 없음)
         // =========================================================================
 
         /** @description 메인 메뉴를 렌더링합니다. */
@@ -664,7 +674,7 @@
             const total = currentQuizSet.length;
             // 퀴즈 세트의 ID를 기준으로 정답/오답을 계산합니다.
             const quizSetIds = currentQuizSet.map(q => q.id);
-            // 최근 퀴즈 세션의 결과만 필터링합니다.
+            // 최근 퀴즈 세션의 결과만 필터링합니다. (quizHistory는 onSnapshot에 의해 업데이트됨)
             const recentHistory = quizHistory.filter(h => quizSetIds.includes(h.quizId)); 
             const correctAnswers = recentHistory.filter(h => h.isCorrect).length;
             const score = correctAnswers / total;
@@ -703,7 +713,6 @@
             )];
 
             // 2. 전체 퀴즈 목록에서 해당 ID의 문제만 필터링합니다.
-            // allQuizzes 맵에서 퀴즈 객체를 가져옵니다.
             const reviewSetTemp = incorrectQuizIds
                 .map(id => allQuizzes[id])
                 .filter(q => q !== undefined); // mockQuizzes에 없는 ID는 제외
@@ -774,18 +783,42 @@
             renderReviewQuestion();
         };
         
-        /** @description 복습 목록에서 해당 문제를 제거하고 히스토리를 업데이트합니다. */
-        window.removeReviewItem = (quizId) => {
-            // 1. 로컬 히스토리에서 해당 문제의 오답 기록만 제거 (다시는 복습 목록에 나타나지 않도록)
-            quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
-            
-            // LocalStorage에 저장 (익명 사용자 또는 비-Firestore 환경)
+        /** * @description 복습 목록에서 해당 문제를 제거하고 히스토리를 업데이트합니다.
+         * 이 함수는 Firestore에서 해당 문제의 오답 기록을 영구 삭제하여 
+         * 새로고침 후에도 목록에 다시 나타나지 않도록 수정되었습니다.
+         */
+        window.removeReviewItem = async (quizId) => { // async 함수로 변경
             const isFirestore = db && userId && !userId.startsWith('error-') && !userId.startsWith('anon-') && !userId.startsWith('anonymous-');
-            if (!isFirestore) {
-                 saveQuizHistory(quizHistory);
-            } 
+
+            if (isFirestore) {
+                // Firestore 환경: 해당 퀴즈 ID의 '오답' 문서들을 찾아 영구 삭제
+                try {
+                    const q = query(
+                        getHistoryCollectionRef(),
+                        where("quizId", "==", quizId),
+                        where("isCorrect", "==", false)
+                    );
+                    const snapshot = await getDocs(q);
+                    
+                    if (snapshot.docs.length > 0) {
+                        for (const docSnapshot of snapshot.docs) {
+                            await deleteDoc(docSnapshot.ref);
+                        }
+                        console.log(`Successfully deleted ${snapshot.docs.length} incorrect history entries for quizId: ${quizId} from Firestore.`);
+                    }
+                    // Firestore 삭제 후 onSnapshot에 의해 quizHistory가 자동 업데이트되므로 로컬 필터링은 생략
+                } catch (error) {
+                    console.error("Error deleting history from Firestore:", error);
+                    // Firestore 오류 발생 시 임시로 LocalStorage fallback을 적용하여 UI는 진행시킴
+                    quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
+                }
+            } else {
+                // LocalStorage 환경: 로컬 배열에서 해당 문제의 오답 기록만 제거 후 저장
+                quizHistory = quizHistory.filter(h => !(h.quizId === quizId && !h.isCorrect));
+                saveQuizHistory(quizHistory);
+            }
             
-            // 2. 현재 복습 셋(`reviewSet`)에서 해당 문제 제거
+            // 2. 현재 복습 셋(`reviewSet`)에서 해당 문제 제거 (로컬 UI 업데이트용)
             const newReviewSet = reviewSet.filter(q => q.id !== quizId);
             reviewSet = newReviewSet;
             
