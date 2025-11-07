@@ -327,7 +327,11 @@
         
         const userQuery = `새로운 4지선다형 퀴즈 ${count}개를 ${selectedTopics.join(', ')} 주제로 생성해 주세요. 각 문제에는 고유 ID, 주제, 질문, 정답, 그리고 정답을 포함한 4개의 보기(options) 배열, 그리고 정답과 오답에 대한 명확한 해설이 포함되어야 합니다.`;
         
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${""}`;
+        // Vercel 배포 문제 해결을 위한 코드 수정
+        // Canvas 환경에서는 ""로 두면 자동으로 키가 주입됩니다.
+        // Vercel 등 외부 배포 환경에서는 여기에 사용자의 Gemini API Key를 직접 입력해야 합니다.
+        const USER_GEMINI_API_KEY = "AIzaSyDmw9LZ5Gl02akGh1UcW_B5tgr_1acZiO4"; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${USER_GEMINI_API_KEY}`;
         
         // JSON SCHEMA: 해설 포함
         const responseSchema = {
